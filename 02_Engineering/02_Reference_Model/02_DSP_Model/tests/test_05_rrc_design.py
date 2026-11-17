@@ -1,10 +1,11 @@
 """Stage 05 tests: RRC filter design."""
 
 import unittest
+from importlib import import_module
 
 import numpy as np
 
-from fpga import design_rrc
+design_rrc = import_module("01_ideal_reference").design_rrc
 
 # (rolloff, span, sps); the last three put t = +/-1/(4*rolloff) on a tap
 CONFIGS = [(0.35, 8, 100), (0.35, 8, 25), (0.2, 10, 5),

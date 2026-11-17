@@ -1,10 +1,11 @@
 """Stage 07 tests: quadrature IF modulation."""
 
 import unittest
+from importlib import import_module
 
 import numpy as np
 
-from fpga import modulate_to_if
+modulate_to_if = import_module("01_ideal_reference").modulate_to_if
 
 
 class TestIfModulation(unittest.TestCase):

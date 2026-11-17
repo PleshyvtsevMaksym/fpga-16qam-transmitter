@@ -1,29 +1,31 @@
 """
-Hardware pipeline: what happens to the signal after the FPGA.
+03 Physical DAC pipeline: FPGA output -> analog DAC output.
 
-The FPGA pipeline (run_fpga_pipeline) ends with the IF samples that the
-FPGA sends to the DAC. This module adds what happens to that signal in
-real hardware, in the physical order. Every step takes datasheet values:
+Physical order, every step takes datasheet values:
 
-    IF samples (FPGA)
-      -> 02 quantization            DAC bits, back-off
-      -> 05 nonlinearity            SFDR, HD2/HD3               (later)
-      -> 06 offset and gain error   % FSR                       (later)
-      -> 03 clock jitter            oscillator + DAC RMS jitter
-      -> 04 phase noise             oscillator L(f)             (later)
-      -> 07 zero-order hold         analog time grid            (later)
-      -> 01 DAC output noise        NSD in dBFS/Hz
-      -> 08 reconstruction filter   type, order, cutoff         (later)
-      -> 09 output stage            full-scale current, load    (later)
-      = transmitter output signal
+    FPGA samples / codes
+      -> 01 quantization            DAC bits, back-off
+      -> 02 nonlinearity            SFDR, HD2/HD3               (later)
+      -> 03 offset and gain error   % FSR                       (later)
+      -> 04 clock jitter            oscillator + DAC RMS jitter
+      -> 05 phase noise             oscillator L(f)             (later)
+      -> 06 zero-order hold         analog time grid            (later)
+      -> 07 DAC output noise        NSD in dBFS/Hz
+      = DAC output (goes to 04 analog output)
 """
+
+from importlib import import_module
 
 import numpy as np
 
-from hardware import add_clock_jitter, add_dac_noise, compute_full_scale, quantize_dac
+_dac = import_module("03_physical_dac")
+quantize_dac = _dac.quantize_dac
+compute_full_scale = _dac.compute_full_scale
+add_clock_jitter = _dac.add_clock_jitter
+add_dac_noise = _dac.add_dac_noise
 
 
-def run_hardware_pipeline(
+def run_physical_dac_pipeline(
     if_samples: np.ndarray,
     sampling_rate: float,
     dac_bits: int | None = None,
@@ -35,7 +37,7 @@ def run_hardware_pipeline(
     full_scale: float | None = None
 ) -> np.ndarray:
     """
-    Turn ideal FPGA IF samples into a realistic transmitter output.
+    Turn FPGA output samples into the analog output of a real DAC.
 
     Every impairment set to None is switched off, so the same function
     gives the ideal output, one effect at a time, or the full hardware.
@@ -43,7 +45,7 @@ def run_hardware_pipeline(
     Parameters
     ----------
     if_samples : np.ndarray
-        Real IF samples from the ideal pipeline (stage 07 output).
+        IF samples from the FPGA (01 ideal reference or 02 bit-true FPGA).
     sampling_rate : float
         DAC sample rate in Hz.
     dac_bits : int, optional
@@ -67,7 +69,7 @@ def run_hardware_pipeline(
     Returns
     -------
     np.ndarray
-        Transmitter output samples, same length as the input.
+        DAC output samples, same length as the input.
     """
 
     # 0. Separate random streams for the random effects
@@ -81,7 +83,7 @@ def run_hardware_pipeline(
     # 2. Quantization: the DAC can only output 2^N discrete levels
     signal = quantize_dac(if_samples, dac_bits, full_scale)
 
-    # 3. Nonlinearity, offset and gain error - added later (hardware 05, 06)
+    # 3. Nonlinearity, offset and gain error - added later (03-02, 03-03)
 
     # 4. Clock jitter: DAC steps happen at slightly wrong instants
     signal = add_clock_jitter(
@@ -89,13 +91,11 @@ def run_hardware_pipeline(
         dac_jitter_rms=dac_jitter_rms, seed=effect_seed(0),
     )
 
-    # 5. Phase noise, zero-order hold - added later (hardware 04, 07)
+    # 5. Phase noise, zero-order hold - added later (03-05, 03-06)
 
     # 6. DAC output noise floor
     signal = add_dac_noise(
         signal, dac_nsd_dbfs_hz, full_scale, sampling_rate, seed=effect_seed(1),
     )
-
-    # 7. Reconstruction filter, output stage - added later (hardware 08, 09)
 
     return signal

@@ -1,10 +1,11 @@
 """Stage 04 tests: zero-insertion upsampling."""
 
 import unittest
+from importlib import import_module
 
 import numpy as np
 
-from fpga import upsample_symbols
+upsample_symbols = import_module("01_ideal_reference").upsample_symbols
 
 SYMBOLS = np.array([1 + 2j, -3 + 0j, 0.5 - 1j, -1 - 1j])
 

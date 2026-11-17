@@ -1,17 +1,16 @@
 """Stage 08-09 tests: bit-true fixed-point FPGA blocks and pipeline."""
 
 import unittest
+from importlib import import_module
 
 import numpy as np
 
-from fpga import (
-    signed_range,
-    required_bits,
-    quantize_coefficients,
-    shift_right,
-    saturate,
-    generate_nco,
-)
+signed_range = import_module("02_bit_true_fpga").signed_range
+required_bits = import_module("02_bit_true_fpga").required_bits
+quantize_coefficients = import_module("02_bit_true_fpga").quantize_coefficients
+shift_right = import_module("02_bit_true_fpga").shift_right
+saturate = import_module("02_bit_true_fpga").saturate
+generate_nco = import_module("02_bit_true_fpga").generate_nco
 
 
 class TestFixedPointArithmetic(unittest.TestCase):
@@ -60,9 +59,9 @@ class TestFixedPointPipeline(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from pipeline import run_fpga_pipeline, run_fpga_fixed_point_pipeline
-        cls.ideal = run_fpga_pipeline()
-        cls.fixed = run_fpga_fixed_point_pipeline()
+        from pipeline import run_ideal_reference_pipeline, run_bit_true_fpga_pipeline
+        cls.ideal = run_ideal_reference_pipeline()
+        cls.fixed = run_bit_true_fpga_pipeline()
 
     def test_codes_fit_dac(self):
         import params
@@ -81,7 +80,8 @@ class TestFixedPointPipeline(unittest.TestCase):
 
     def test_evm_like_ideal(self):
         import params
-        from analysis import demodulate_if, compute_evm
+        demodulate_if = import_module("05_measurement_instruments").demodulate_if
+        compute_evm = import_module("05_measurement_instruments").compute_evm
         rx, _ = demodulate_if(self.fixed["if_samples"], self.fixed["rrc_coefficients"],
                               params.SAMPLE_RATE, params.IF_FREQUENCY,
                               params.SAMPLES_PER_SYMBOL, self.fixed["normalized_symbols"])

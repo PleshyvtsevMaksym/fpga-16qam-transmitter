@@ -1,9 +1,9 @@
-16-QAM DSP REFERENCE MODEL - PROJECT OVERVIEW
-=============================================
+16-QAM TRANSMITTER REFERENCE MODEL - PROJECT OVERVIEW
+=====================================================
 
 HOW TO RUN (from the 02_DSP_Model folder, in PowerShell)
 ---------------------------------------------------------
-  py main.py          run both pipelines, print the report, show the figures
+  py main.py          run pipelines 01-05, print the reports, show the figures
   py -m tests.test    run all tests, PASS/FAIL summary at the end
 
 Use "py", not "python": "python" here starts a Python 3.13 without NumPy.
@@ -12,100 +12,98 @@ Run from 02_DSP_Model so params.py and the packages are found.
 
 ARCHITECTURE
 ------------
-  params.py          all parameter values (transmitter, FPGA word widths,
-                     hardware datasheet values), no code
-      |
-  pipeline/fpga_pipeline.py      fpga/ = the FPGA: ideal reference (01-07)
-      |                          and bit-true fixed-point model (08-09)
-      |                          -> IF samples sent to the DAC
-  pipeline/hardware_pipeline.py  hardware/ = what happens after the FPGA
-      |                          (DAC, clock, filter, output stage; datasheet units)
-      |                          -> transmitter output
-  analysis/          virtual instruments (spectrum, VSA/EVM, later RF metrics), only measure
-  visualization.py   all figures (clean FPGA signal + noisy output), only plot
-  main.py            entry point: runs everything, SHOW_* switches
-  tests/             checks every stage and the whole chain independently
+Five models, one folder each, in the order the signal passes through them.
+Every folder has its own pipeline in pipeline/.
 
-Processing chain:
-  PRBS15 bits -> Gray 16-QAM mapping -> normalization (/sqrt(10))
-  -> zero-insertion upsampling (x100) -> RRC filter design
-  -> FIR pulse shaping -> quadrature IF modulation (5 MHz)      [FPGA]
-  -> quantization -> nonlinearity/offset -> clock jitter/phase noise
-  -> zero-order hold -> DAC noise -> filter -> output stage    [hardware]
-  -> spectrum / EVM                                              [analysis]
+  01_ideal_reference/          PRBS15 -> 16-QAM -> RRC -> ideal IF (floating point)
+      |                        the mathematical reference, never changed
+  02_bit_true_fpga/            fixed-point FIR, DDS/NCO, rounding, saturation
+      |                        -> DAC codes, exactly as the HDL will compute
+  03_physical_dac/             code-to-analog, nonlinearity, clock events
+      |                        (jitter, phase noise), zero-order hold, DAC noise
+  04_analog_output/            reconstruction filter, output stage, load, noise
+      |                        -> transmitter output
+  05_measurement_instruments/  spectrum analyzer, VSA (EVM), RF metrics,
+                               oscilloscope: only measure, never change
+
+  pipeline/          one pipeline per model (01-05) + terminal reports
+  params.py          all values: transmitter (1-3), FPGA word widths (4),
+                     DAC datasheet values (5), analog output (6)
+  visualization.py   all figures, only plot
+  main.py            runs 01 -> 05, SHOW_* switches, USE_FIXED_POINT_FPGA
+  tests/             checks every block and the whole chain
+
+Folder and file names start with a digit, so they are loaded with
+importlib.import_module("01_ideal_reference") and re-exported by each
+__init__.py.
 
 
 FILES
 -----
-params.py
-    All parameter values: symbols, rates, IF, RRC roll-off/span, and the
-    hardware values (datasheet or marked ASSUMPTION; None = effect off).
+01_ideal_reference/
+    01_prbs15_generation.py         prbs15_generator: 15-bit LFSR, seed 0x0001
+    02_16qam_gray_mapping.py        qam16_gray_mapping / qam16_gray_demapping
+    03_symbol_normalization.py      normalize_symbols: divide by sqrt(Es)
+    04_zero_insertion_upsampling.py upsample_symbols: symbol + (sps - 1) zeros
+    05_rrc_filter_design.py         design_rrc: unit-energy RRC coefficients
+    06_fir_pulse_shaping.py         apply_fir: full linear convolution
+    07_quadrature_if_modulation.py  modulate_to_if: I cos - Q sin
 
-main.py
-    Entry point. SHOW_* switches at the top turn single figures on/off.
+02_bit_true_fpga/
+    01_fixed_point_arithmetic.py    quantize_coefficients, shift_right (round/truncate),
+                                    saturate, required_bits, signed_range
+    02_nco.py                       generate_nco: DDS (phase accumulator + cos/sin LUT)
 
-fpga/__init__.py
-    Loads the numbered modules with importlib (names starting with a digit
-    cannot be imported normally) and exports the functions, so you can
-    write: from fpga import design_rrc
+03_physical_dac/
+    01_dac_quantization.py          quantize_dac (N-bit two's complement),
+                                    compute_full_scale (peak + back-off)
+    02_dac_nonlinearity.py          SFDR / HD2 / HD3 (to be written)
+    03_offset_gain_error.py         offset and gain error, % FSR (to be written)
+    04_clock_jitter.py              add_clock_jitter: oscillator + DAC RMS jitter
+    05_phase_noise.py               oscillator L(f) mask (to be written)
+    06_zero_order_hold.py           sinc roll-off and images (to be written)
+    07_dac_noise.py                 add_dac_noise: noise floor from NSD, dBFS/Hz
 
-fpga/01_prbs15_generation.py         prbs15_generator: 15-bit LFSR, seed 0x0001
-fpga/02_16qam_gray_mapping.py        qam16_gray_mapping / qam16_gray_demapping
-fpga/03_symbol_normalization.py      normalize_symbols: divide by sqrt(Es)
-fpga/04_zero_insertion_upsampling.py upsample_symbols: symbol + (sps - 1) zeros
-fpga/05_rrc_filter_design.py         design_rrc: unit-energy RRC coefficients
-fpga/06_fir_pulse_shaping.py         apply_fir: full linear convolution
-fpga/07_quadrature_if_modulation.py  modulate_to_if: I cos - Q sin
-fpga/08_fixed_point_arithmetic.py   quantize_coefficients, shift_right (round/truncate),
-                                    saturate, required_bits: bit-true integer operations
-fpga/09_nco.py                      generate_nco: DDS (phase accumulator + cos/sin LUT)
+04_analog_output/
+    01_reconstruction_filter.py     type, order, cutoff (to be written)
+    02_output_stage.py              full-scale current, load, voltage (to be written)
+    03_analog_noise.py              add_awgn: noise at a given SNR (theory figures)
 
-hardware/01_awgn.py                    add_awgn: noise at a given SNR (theory figures)
-                                    add_dac_noise: DAC noise floor from NSD (dBFS/Hz)
-hardware/02_dac_quantization.py        quantize_dac: N-bit two's complement DAC
-                                    compute_full_scale: full scale from peak + back-off
-hardware/03_clock_jitter.py            add_clock_jitter: oscillator + DAC RMS jitter
-hardware/04 ... 09                     phase noise, nonlinearity, offset/gain error,
-                                    zero-order hold, reconstruction filter,
-                                    output stage (to be written)
+05_measurement_instruments/
+    01_spectrum_analyzer.py         compute_spectrum: |X[k]|/N in dB
+    02_vector_signal_analyzer.py    demodulate_if (delay, gain, phase sync from the
+                                    known symbols), compute_evm: RMS EVM in %
+    03_rf_metrics.py                PSD in dBm/Hz, ACLR, SFDR (to be written)
+    04_oscilloscope.py              sample rate, ENOB, record length (to be written)
 
-analysis/01_fft_spectrum.py         compute_spectrum: |X[k]|/N in dB (virtual spectrum analyzer)
-analysis/02_evm.py                  demodulate_if: VSA (delay, gain, phase sync from known
-                                    symbols); compute_evm: RMS EVM in %
-analysis/03_rf_metrics.py           PSD in dBm/Hz, ACLR, SFDR (to be written)
-
-pipeline/fpga_pipeline.py
-    run_fpga_pipeline(): connects fpga stages 01-07 and returns a
-    dictionary with every intermediate array.
-    run_fpga_fixed_point_pipeline(): the same transmitter with the FPGA
-    word widths (params section 4); returns integer DAC codes and the
-    same signal in ideal units. Golden reference for the HDL testbench.
-
-pipeline/hardware_pipeline.py
-    run_hardware_pipeline(): IF samples -> noise models in physical order
-    -> transmitter output.
-
-pipeline/pipeline_report.py
-    Terminal report: configuration and the size of every stage output.
-    [DONE] means "executed", not "verified".
+pipeline/
+    01_ideal_reference_pipeline.py  run_ideal_reference_pipeline -> dict of every signal
+    02_bit_true_fpga_pipeline.py    run_bit_true_fpga_pipeline -> DAC codes, IF in
+                                    ideal units, full_scale, word-width report;
+                                    golden reference for the HDL testbench
+    03_physical_dac_pipeline.py     run_physical_dac_pipeline -> DAC output
+    04_analog_output_pipeline.py    run_analog_output_pipeline -> transmitter output
+    05_measurement_pipeline.py      run_measurement_pipeline -> spectrum, symbols,
+                                    sync, EVM
+    pipeline_report.py              print_pipeline_report (01), print_fixed_point_report (02)
 
 visualization.py
     plot_constellation, plot_symbol_processing, plot_rrc_response,
-    plot_if_waveform and plot_spectra (clean FPGA signal + noisy transmitter
-    output), plot_noisy_constellation (theory illustration: AWGN on symbols).
+    plot_if_waveform, plot_spectra, plot_noisy_constellation,
+    plot_received_constellation, plot_evm_sweep.
 
 tests/test.py
     Runs every tests/test_*.py file and prints PASS / FAIL / ERROR / SKIPPED.
 
 tests/test_01_prbs15.py ... tests/test_08_spectrum.py
-    One file per DSP stage (test_08 = analysis/01_fft_spectrum). Expected
+    One file per 01 stage (test_08 = 05-01 spectrum analyzer). Expected
     values come from hand calculations, definitions and known signal properties.
 
-tests/test_10_fixed_point.py
-    Fixed-point arithmetic by hand, DDS, and the bit-true pipeline vs ideal.
-
 tests/test_09_end_to_end.py
-    Whole FPGA pipeline: array lengths, baseband and IF consistency,
-    bandwidth, and an independent reference receiver that recovers all bits.
+    Whole 01 ideal reference pipeline: array lengths, baseband and IF
+    consistency, bandwidth, and an independent receiver that recovers all bits.
+
+tests/test_10_fixed_point.py
+    02 bit-true FPGA: fixed-point arithmetic by hand, DDS, pipeline vs ideal.
 
 To run one test file only:  py -m unittest tests.test_05_rrc_design -v

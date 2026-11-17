@@ -14,9 +14,11 @@ Call plt.show() once after creating the figures.
 import numpy as np
 import matplotlib.pyplot as plt
 
-from analysis import compute_spectrum
-from fpga import qam16_gray_demapping
-from hardware import add_awgn
+from importlib import import_module
+
+compute_spectrum = import_module("05_measurement_instruments").compute_spectrum
+qam16_gray_demapping = import_module("01_ideal_reference").qam16_gray_demapping
+add_awgn = import_module("04_analog_output").add_awgn
 
 I_COLOR = "tab:blue"
 Q_COLOR = "tab:orange"

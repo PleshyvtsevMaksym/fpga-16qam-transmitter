@@ -1,5 +1,5 @@
 """
-Stage 09 tests: the complete transmitter from run_fpga_pipeline().
+Stage 09 tests: the complete transmitter from run_ideal_reference_pipeline().
 
 Symbol recovery uses an independent reference receiver written here with
 plain NumPy: coherent downconversion, matched RRC filter, timing at the
@@ -9,13 +9,14 @@ total delay of the two filters, gain estimate and nearest-level decisions.
 import contextlib
 import io
 import unittest
+from importlib import import_module
 
 import numpy as np
 
 import params
-from pipeline import run_fpga_pipeline
-from analysis import compute_spectrum
-from fpga import qam16_gray_demapping
+from pipeline import run_ideal_reference_pipeline
+compute_spectrum = import_module("05_measurement_instruments").compute_spectrum
+qam16_gray_demapping = import_module("01_ideal_reference").qam16_gray_demapping
 
 # Gray table per axis, written independently of the DSP module
 AXIS_LEVEL = {(0, 0): -3, (0, 1): -1, (1, 1): 1, (1, 0): 3}
@@ -50,7 +51,7 @@ class TestEndToEnd(unittest.TestCase):
     def setUpClass(cls):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            cls.r = run_fpga_pipeline()
+            cls.r = run_ideal_reference_pipeline()
         # Spectra are measurements, computed outside the pipeline
         cls.r["baseband_frequencies"], cls.r["baseband_spectrum_db"] = compute_spectrum(
             cls.r["pulse_shaped_symbols"], params.SAMPLE_RATE)

@@ -2,10 +2,11 @@
 
 import itertools
 import unittest
+from importlib import import_module
 
 import numpy as np
 
-from fpga import normalize_symbols
+normalize_symbols = import_module("01_ideal_reference").normalize_symbols
 
 LEVELS = (-3, -1, 1, 3)
 ALPHABET = np.array([i + 1j * q for i, q in itertools.product(LEVELS, LEVELS)])

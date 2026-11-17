@@ -1,10 +1,11 @@
 """Stage 06 tests: FIR pulse shaping (full linear convolution)."""
 
 import unittest
+from importlib import import_module
 
 import numpy as np
 
-from fpga import apply_fir
+apply_fir = import_module("01_ideal_reference").apply_fir
 
 
 def direct_convolution(x, h):

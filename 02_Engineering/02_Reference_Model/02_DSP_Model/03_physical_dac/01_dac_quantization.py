@@ -1,4 +1,4 @@
-"""Hardware 02: DAC quantization (ideal N-bit DAC, two's complement codes)."""
+"""03-01 DAC quantization (ideal N-bit DAC, two's complement codes)."""
 
 import numbers
 

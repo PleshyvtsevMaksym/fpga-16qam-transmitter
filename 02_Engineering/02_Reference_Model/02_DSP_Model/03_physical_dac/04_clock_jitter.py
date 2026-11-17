@@ -1,4 +1,4 @@
-"""Hardware 03: DAC clock jitter (random white jitter of the update instants)."""
+"""03-04 DAC clock jitter (random white jitter of the update instants)."""
 
 import numpy as np
 
@@ -31,7 +31,7 @@ def add_clock_jitter(
     SNR_jitter ~ -20 * log10(2 * pi * f * sigma_t) dB.
 
     Only the white (wideband) part of the jitter is modelled here. Slow,
-    correlated jitter is the phase noise of the clock (hardware 04).
+    correlated jitter is the phase noise of the clock (03-05).
 
     Parameters
     ----------

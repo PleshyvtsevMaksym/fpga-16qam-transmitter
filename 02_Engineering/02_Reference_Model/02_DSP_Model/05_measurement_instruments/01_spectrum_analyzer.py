@@ -1,4 +1,4 @@
-"""Analysis 01: FFT amplitude spectrum (virtual spectrum analyzer)."""
+"""05-01 FFT amplitude spectrum (virtual spectrum analyzer)."""
 
 import numpy as np
 

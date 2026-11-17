@@ -1,10 +1,11 @@
 """Analysis 01 tests: FFT amplitude spectrum."""
 
 import unittest
+from importlib import import_module
 
 import numpy as np
 
-from analysis import compute_spectrum
+compute_spectrum = import_module("05_measurement_instruments").compute_spectrum
 
 FLOOR_DB = 20 * np.log10(np.finfo(float).tiny)    # about -6153 dB
 

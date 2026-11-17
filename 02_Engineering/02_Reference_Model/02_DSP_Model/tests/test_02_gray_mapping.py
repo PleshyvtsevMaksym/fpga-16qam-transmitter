@@ -2,8 +2,11 @@
 
 import itertools
 import unittest
+from importlib import import_module
 
-from fpga import prbs15_generator, qam16_gray_mapping, qam16_gray_demapping
+prbs15_generator = import_module("01_ideal_reference").prbs15_generator
+qam16_gray_mapping = import_module("01_ideal_reference").qam16_gray_mapping
+qam16_gray_demapping = import_module("01_ideal_reference").qam16_gray_demapping
 
 # All 16 symbols written out by hand: (b0 b1 b2 b3) -> (I, Q)
 # Per axis: 00 -> -3, 01 -> -1, 11 -> +1, 10 -> +3

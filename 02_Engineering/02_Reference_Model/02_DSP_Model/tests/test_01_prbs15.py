@@ -1,10 +1,11 @@
 """Stage 01 tests: PRBS15 generator."""
 
 import unittest
+from importlib import import_module
 
 import numpy as np
 
-from fpga import prbs15_generator
+prbs15_generator = import_module("01_ideal_reference").prbs15_generator
 
 PERIOD = 2 ** 15 - 1    # 32767 = 7 * 31 * 151
 

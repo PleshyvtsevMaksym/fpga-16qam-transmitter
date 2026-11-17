@@ -1,4 +1,4 @@
-"""Terminal report of the transmitter configuration and executed DSP stages."""
+"""Terminal reports: transmitter configuration and stages of 01 ideal reference, word widths of 02 bit-true FPGA."""
 
 from params import (
     NUM_SYMBOLS,
@@ -23,7 +23,7 @@ def print_pipeline_report(results: dict) -> None:
     Parameters
     ----------
     results : dict
-        Output of run_fpga_pipeline().
+        Output of run_ideal_reference_pipeline().
     """
 
     # 1. Header and configuration
@@ -54,7 +54,7 @@ def print_pipeline_report(results: dict) -> None:
     ]
 
     print()
-    print("FPGA PROCESSING PIPELINE (ideal reference)")
+    print("01 IDEAL REFERENCE PIPELINE")
     print("-" * WIDTH)
 
     for index, (name, details) in enumerate(stages, start=1):
@@ -73,7 +73,7 @@ def print_fixed_point_report(fixed_point: dict) -> None:
     fp = fixed_point
 
     print()
-    print("FPGA FIXED-POINT DESIGN (bit-true model)")
+    print("02 BIT-TRUE FPGA PIPELINE")
     print("-" * WIDTH)
     print(f"{'Symbols I/Q':<28}: {fp['symbol_bits']} bit (levels +-1, +-3)")
     print(f"{'RRC coefficients':<28}: {fp['coef_bits']} bit, "

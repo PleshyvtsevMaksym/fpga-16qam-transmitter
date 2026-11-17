@@ -1,29 +1,17 @@
 """
-FPGA pipeline: the transmitter inside the FPGA.
+02 Bit-true FPGA pipeline: the transmitter as the FPGA computes it.
 
-    run_fpga_pipeline              ideal floating-point reference, stages 01-07
-    run_fpga_fixed_point_pipeline  bit-true model with the FPGA word widths
+    integer symbols -> fixed-point FIR -> rounding / saturation
+    -> DDS/NCO -> I*cos - Q*sin -> output gain -> DAC codes
 
-Both end with the IF samples that are sent to the DAC. What happens after
-the FPGA is in hardware_pipeline.py.
+Every value is an integer of the width set in params (section 4). The
+DAC codes are the golden reference for the HDL testbench.
 """
+
+from importlib import import_module
 
 import numpy as np
 
-from fpga import (
-    prbs15_generator,
-    qam16_gray_mapping,
-    normalize_symbols,
-    upsample_symbols,
-    design_rrc,
-    apply_fir,
-    modulate_to_if,
-    quantize_coefficients,
-    required_bits,
-    shift_right,
-    saturate,
-    generate_nco,
-)
 from params import (
     NUM_BITS,
     QAM_AVG_ENERGY,
@@ -43,77 +31,26 @@ from params import (
     DAC_BACKOFF_DB,
 )
 
+# Same PRBS, Gray mapping and RRC design as the reference (integer logic in the FPGA)
+_ideal = import_module("01_ideal_reference")
+prbs15_generator = _ideal.prbs15_generator
+qam16_gray_mapping = _ideal.qam16_gray_mapping
+normalize_symbols = _ideal.normalize_symbols
+design_rrc = _ideal.design_rrc
 
-def run_fpga_pipeline():
-    """
-    Run the ideal FPGA transmitter chain (stages 01-07) with the parameters above.
-
-    Measurements such as the spectrum are not part of the chain; they are
-    computed from the returned signals with the analysis package.
-
-    Returns
-    -------
-    dict
-        Every intermediate signal, keyed by name, in processing order:
-        bits, symbols, normalized_symbols, upsampled_symbols,
-        rrc_coefficients, pulse_shaped_symbols, if_samples.
-    """
-
-    # 1. PRBS15 generation
-    bits = prbs15_generator(NUM_BITS)
-
-    # 2. Gray-coded 16-QAM mapping
-    map_i, map_q = qam16_gray_mapping(bits)
-    symbols = np.asarray(map_i) + 1j * np.asarray(map_q)
-
-    # 3. Symbol energy normalization
-    normalized_symbols = normalize_symbols(
-        symbols,
-        QAM_AVG_ENERGY
-    )
-
-    # 4. Zero-insertion upsampling
-    upsampled_symbols = upsample_symbols(
-        normalized_symbols,
-        SAMPLES_PER_SYMBOL
-    )
-
-    # 5. RRC filter design
-    rrc_coefficients = design_rrc(
-        RRC_ROLLOFF,
-        RRC_SPAN,
-        SAMPLES_PER_SYMBOL
-    )
-
-    # 6. FIR pulse shaping
-    pulse_shaped_symbols = apply_fir(
-        upsampled_symbols,
-        rrc_coefficients
-    )
-
-    # 7. Quadrature IF modulation
-    if_samples = modulate_to_if(
-        pulse_shaped_symbols,
-        SAMPLE_RATE,
-        IF_FREQUENCY
-    )
-
-    return {
-        "bits": bits,
-        "symbols": symbols,
-        "normalized_symbols": normalized_symbols,
-        "upsampled_symbols": upsampled_symbols,
-        "rrc_coefficients": rrc_coefficients,
-        "pulse_shaped_symbols": pulse_shaped_symbols,
-        "if_samples": if_samples,
-    }
+_fpga = import_module("02_bit_true_fpga")
+quantize_coefficients = _fpga.quantize_coefficients
+required_bits = _fpga.required_bits
+shift_right = _fpga.shift_right
+saturate = _fpga.saturate
+generate_nco = _fpga.generate_nco
 
 
-def run_fpga_fixed_point_pipeline():
+def run_bit_true_fpga_pipeline():
     """
     Run the bit-true FPGA transmitter: integers of fixed width, as in HDL.
 
-    Same algorithm as run_fpga_pipeline, but every value is an integer of
+    Same algorithm as run_ideal_reference_pipeline, but every value is an integer of
     the width set in params (section 4), exactly as the HDL will compute it.
     The output is the stream of DAC codes; it later serves as the golden
     reference for the HDL testbench (bit-by-bit comparison).
