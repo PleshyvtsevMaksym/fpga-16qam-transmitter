@@ -54,7 +54,7 @@ def print_pipeline_report(results: dict) -> None:
     ]
 
     print()
-    print("DSP PROCESSING PIPELINE")
+    print("FPGA PROCESSING PIPELINE (ideal reference)")
     print("-" * WIDTH)
 
     for index, (name, details) in enumerate(stages, start=1):
@@ -65,3 +65,25 @@ def print_pipeline_report(results: dict) -> None:
     print("=" * WIDTH)
     print("PIPELINE COMPLETED".center(WIDTH))
     print("=" * WIDTH)
+
+
+def print_fixed_point_report(fixed_point: dict) -> None:
+    """Print the word widths and checks of the bit-true FPGA pipeline."""
+
+    fp = fixed_point
+
+    print()
+    print("FPGA FIXED-POINT DESIGN (bit-true model)")
+    print("-" * WIDTH)
+    print(f"{'Symbols I/Q':<28}: {fp['symbol_bits']} bit (levels +-1, +-3)")
+    print(f"{'RRC coefficients':<28}: {fp['coef_bits']} bit, "
+          f"max error {fp['coef_max_error_lsb']:.3f} LSB")
+    print(f"{'FIR accumulator':<28}: {fp['accumulator_bits']} bit (worst case)")
+    print(f"{'FIR output':<28}: {fp['fir_out_bits']} bit "
+          f"(drop {fp['fir_shift']} LSB, {fp['rounding']})")
+    print(f"{'DDS frequency':<28}: {fp['nco_frequency'] / 1e6:.9f} MHz "
+          f"(error {fp['nco_frequency_error'] * 1e3:.3f} mHz)")
+    print(f"{'I*cos - Q*sin':<28}: {fp['mixed_bits']} bit")
+    print(f"{'Output gain':<28}: {fp['gain_int']} / 2^{fp['gain_shift']}")
+    print(f"{'Output to DAC':<28}: {fp['dac_bits']} bit")
+    print(f"{'Clipped samples':<28}: {fp['clipped_samples']}")

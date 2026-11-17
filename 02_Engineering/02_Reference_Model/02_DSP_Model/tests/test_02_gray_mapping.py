@@ -3,7 +3,7 @@
 import itertools
 import unittest
 
-from dsp import prbs15_generator, qam16_gray_mapping, qam16_gray_demapping
+from fpga import prbs15_generator, qam16_gray_mapping, qam16_gray_demapping
 
 # All 16 symbols written out by hand: (b0 b1 b2 b3) -> (I, Q)
 # Per axis: 00 -> -3, 01 -> -1, 11 -> +1, 10 -> +3

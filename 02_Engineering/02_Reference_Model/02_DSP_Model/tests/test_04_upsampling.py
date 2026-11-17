@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from dsp import upsample_symbols
+from fpga import upsample_symbols
 
 SYMBOLS = np.array([1 + 2j, -3 + 0j, 0.5 - 1j, -1 - 1j])
 

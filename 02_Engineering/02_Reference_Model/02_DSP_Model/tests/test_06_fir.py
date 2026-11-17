@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from dsp import apply_fir
+from fpga import apply_fir
 
 
 def direct_convolution(x, h):

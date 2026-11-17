@@ -1,4 +1,4 @@
-"""Noise 02: DAC quantization (ideal N-bit DAC, two's complement codes)."""
+"""Hardware 02: DAC quantization (ideal N-bit DAC, two's complement codes)."""
 
 import numbers
 

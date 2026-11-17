@@ -1,5 +1,5 @@
 """
-Noise 01: Additive white Gaussian noise (AWGN).
+Hardware 01: Additive white Gaussian noise (AWGN).
 
 add_awgn       noise at a given SNR per sample (theory illustrations)
 add_dac_noise  white output noise of the DAC from its datasheet NSD
@@ -96,7 +96,7 @@ def add_dac_noise(
         sigma   = sqrt(P_noise)
 
     Noise outside 0 ... Fs/2 is not represented at this sample rate; it is
-    added later on the analog time grid (noise 07, 08).
+    added later on the analog time grid (hardware 07, 08).
 
     Parameters
     ----------

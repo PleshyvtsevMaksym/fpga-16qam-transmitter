@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from dsp import prbs15_generator
+from fpga import prbs15_generator
 
 PERIOD = 2 ** 15 - 1    # 32767 = 7 * 31 * 151
 

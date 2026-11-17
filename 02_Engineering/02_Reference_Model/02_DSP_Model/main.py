@@ -10,10 +10,20 @@ import numpy as np
 
 import params
 from analysis import compute_spectrum, demodulate_if, compute_evm
-from noise import compute_full_scale
-from pipeline import run_fpga_pipeline, run_hardware_pipeline, print_pipeline_report
+from hardware import compute_full_scale
+from pipeline import (
+    run_fpga_pipeline,
+    run_fpga_fixed_point_pipeline,
+    run_hardware_pipeline,
+    print_pipeline_report,
+    print_fixed_point_report,
+)
 import visualization
 
+
+# FPGA model that feeds the hardware: True = bit-true fixed-point FPGA,
+# False = ideal floating-point reference
+USE_FIXED_POINT_FPGA = True
 
 # Set a figure to False to skip it
 SHOW_CONSTELLATION = True
@@ -35,11 +45,12 @@ EVM_LIMIT_PERCENT = 12.5          # LTE 16-QAM transmitter limit (3GPP TS 36.104
 
 def main():
 
-    # 1. FPGA pipeline (ideal transmitter)
+    # 1. FPGA pipeline: ideal reference (figures) and the model that feeds the DAC
     results = run_fpga_pipeline()
+    fpga = run_fpga_fixed_point_pipeline() if USE_FIXED_POINT_FPGA else results
 
-    # 2. Hardware pipeline after the FPGA (DAC, filter, thermal noise)
-    tx_output = run_hardware(results)
+    # 2. Hardware pipeline after the FPGA (DAC, clock, noise)
+    tx_output = run_hardware(fpga)
 
     # 3. Measurements (virtual spectrum analyzer)
     bb_frequencies, bb_spectrum_db = compute_spectrum(
@@ -56,6 +67,11 @@ def main():
 
     # 5. Terminal report
     print_pipeline_report(results)
+    if USE_FIXED_POINT_FPGA:
+        print_fixed_point_report(fpga["fixed_point"])
+        fpga_snr = 10 * np.log10(np.mean(results["if_samples"] ** 2)
+                                 / np.mean((fpga["if_samples"] - results["if_samples"]) ** 2))
+        print(f"{'Fixed-point vs ideal SNR':<28}: {fpga_snr:.1f} dB")
 
     # 6. Figures
     visualization.apply_plot_style()
@@ -125,7 +141,7 @@ def main():
         )
 
     if SHOW_EVM_VS_NSD:
-        evm_measured, evm_theory = evm_nsd_sweep(results)
+        evm_measured, evm_theory = evm_nsd_sweep(fpga, results)
         visualization.plot_evm_sweep(
             EVM_NSD_SWEEP,
             evm_measured,
@@ -134,15 +150,16 @@ def main():
             EVM_LIMIT_PERCENT,
         )
 
-    print(f"EVM at the transmitter output: {evm:.2f} % ({hardware_label()})")
+    fpga_label = "fixed-point FPGA" if USE_FIXED_POINT_FPGA else "ideal FPGA"
+    print(f"EVM at the transmitter output: {evm:.2f} % ({fpga_label}, {hardware_label()})")
     print(f"Analyzer sync: delay {sync['delay_samples']} samples, "
           f"gain {sync['gain']:.4f}, phase {sync['phase_deg']:.3f} deg")
 
     plt.show()
 
 
-def run_hardware(results, **overrides):
-    """Hardware pipeline with the datasheet values from params; overrides change single values."""
+def run_hardware(fpga, **overrides):
+    """Hardware pipeline on an FPGA output with the datasheet values from params; overrides change single values."""
 
     settings = dict(
         dac_bits=params.DAC_BITS,
@@ -151,10 +168,11 @@ def run_hardware(results, **overrides):
         clock_jitter_rms=params.CLOCK_JITTER_RMS,
         dac_jitter_rms=params.DAC_JITTER_RMS,
         seed=params.NOISE_SEED,
+        full_scale=fpga.get("full_scale"),
     )
     settings.update(overrides)
 
-    return run_hardware_pipeline(results["if_samples"], params.SAMPLE_RATE, **settings)
+    return run_hardware_pipeline(fpga["if_samples"], params.SAMPLE_RATE, **settings)
 
 
 def hardware_label():
@@ -178,24 +196,26 @@ def recover_symbols(tx_samples, results):
     )
 
 
-def evm_nsd_sweep(results):
+def evm_nsd_sweep(fpga, results):
     """Measured and theoretical EVM (percent) for every NSD in EVM_NSD_SWEEP."""
 
     reference = results["normalized_symbols"]
 
     # 1. EVM floor: all hardware effects except the DAC output noise
-    floor_tx = run_hardware(results, dac_nsd_dbfs_hz=None)
+    floor_tx = run_hardware(fpga, dac_nsd_dbfs_hz=None)
     evm_0 = compute_evm(recover_symbols(floor_tx, results)[0], reference) / 100
 
     # 2. Measured EVM through the full hardware pipeline
     evm_measured = []
     for nsd in EVM_NSD_SWEEP:
-        tx = run_hardware(results, dac_nsd_dbfs_hz=nsd)
+        tx = run_hardware(fpga, dac_nsd_dbfs_hz=nsd)
         evm_measured.append(compute_evm(recover_symbols(tx, results)[0], reference))
 
     # 3. Theory: N0 = P_FS * 10^(NSD/10), Es/N0 = P_signal / (N0 * Rs)
-    full_scale = compute_full_scale(results["if_samples"], params.DAC_BACKOFF_DB)
-    p_signal = np.mean(results["if_samples"] ** 2)
+    full_scale = fpga.get("full_scale") or compute_full_scale(
+        fpga["if_samples"], params.DAC_BACKOFF_DB
+    )
+    p_signal = np.mean(fpga["if_samples"] ** 2)
     n0 = full_scale ** 2 / 2 * 10 ** (EVM_NSD_SWEEP / 10)
     es_n0 = p_signal / (n0 * params.SYMBOL_RATE)
     evm_theory = 100 * np.sqrt(evm_0 ** 2 + 1 / es_n0)

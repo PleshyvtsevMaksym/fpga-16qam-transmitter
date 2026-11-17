@@ -15,8 +15,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from analysis import compute_spectrum
-from dsp import qam16_gray_demapping
-from noise import add_awgn
+from fpga import qam16_gray_demapping
+from hardware import add_awgn
 
 I_COLOR = "tab:blue"
 Q_COLOR = "tab:orange"

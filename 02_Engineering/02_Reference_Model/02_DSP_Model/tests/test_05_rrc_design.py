@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from dsp import design_rrc
+from fpga import design_rrc
 
 # (rolloff, span, sps); the last three put t = +/-1/(4*rolloff) on a tap
 CONFIGS = [(0.35, 8, 100), (0.35, 8, 25), (0.2, 10, 5),

@@ -15,7 +15,7 @@ import numpy as np
 import params
 from pipeline import run_fpga_pipeline
 from analysis import compute_spectrum
-from dsp import qam16_gray_demapping
+from fpga import qam16_gray_demapping
 
 # Gray table per axis, written independently of the DSP module
 AXIS_LEVEL = {(0, 0): -3, (0, 1): -1, (1, 1): 1, (1, 0): 3}

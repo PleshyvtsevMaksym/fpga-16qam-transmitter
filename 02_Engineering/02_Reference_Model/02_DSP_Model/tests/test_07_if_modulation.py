@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from dsp import modulate_to_if
+from fpga import modulate_to_if
 
 
 class TestIfModulation(unittest.TestCase):

@@ -5,7 +5,7 @@ import unittest
 
 import numpy as np
 
-from dsp import normalize_symbols
+from fpga import normalize_symbols
 
 LEVELS = (-3, -1, 1, 3)
 ALPHABET = np.array([i + 1j * q for i, q in itertools.product(LEVELS, LEVELS)])

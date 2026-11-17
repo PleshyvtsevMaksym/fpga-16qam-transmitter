@@ -20,7 +20,7 @@ real hardware, in the physical order. Every step takes datasheet values:
 
 import numpy as np
 
-from noise import add_clock_jitter, add_dac_noise, compute_full_scale, quantize_dac
+from hardware import add_clock_jitter, add_dac_noise, compute_full_scale, quantize_dac
 
 
 def run_hardware_pipeline(
@@ -31,7 +31,8 @@ def run_hardware_pipeline(
     dac_nsd_dbfs_hz: float | None = None,
     clock_jitter_rms: float | None = None,
     dac_jitter_rms: float | None = None,
-    seed: int | None = None
+    seed: int | None = None,
+    full_scale: float | None = None
 ) -> np.ndarray:
     """
     Turn ideal FPGA IF samples into a realistic transmitter output.
@@ -58,6 +59,10 @@ def run_hardware_pipeline(
     seed : int, optional
         Seed for the random generators, makes results repeatable.
         Every random effect gets its own seed (seed, seed + 1, ...).
+    full_scale : float, optional
+        DAC full scale in signal units when it is already fixed by the
+        FPGA (bit-true pipeline output). None = compute it from the signal
+        peak and dac_backoff_db (ideal floating-point FPGA).
 
     Returns
     -------
@@ -70,12 +75,13 @@ def run_hardware_pipeline(
         return None if seed is None else seed + index
 
     # 1. DAC full scale set by the FPGA output scaling (back-off)
-    full_scale = compute_full_scale(if_samples, dac_backoff_db)
+    if full_scale is None:
+        full_scale = compute_full_scale(if_samples, dac_backoff_db)
 
     # 2. Quantization: the DAC can only output 2^N discrete levels
     signal = quantize_dac(if_samples, dac_bits, full_scale)
 
-    # 3. Nonlinearity, offset and gain error - added later (noise 05, 06)
+    # 3. Nonlinearity, offset and gain error - added later (hardware 05, 06)
 
     # 4. Clock jitter: DAC steps happen at slightly wrong instants
     signal = add_clock_jitter(
@@ -83,13 +89,13 @@ def run_hardware_pipeline(
         dac_jitter_rms=dac_jitter_rms, seed=effect_seed(0),
     )
 
-    # 5. Phase noise, zero-order hold - added later (noise 04, 07)
+    # 5. Phase noise, zero-order hold - added later (hardware 04, 07)
 
     # 6. DAC output noise floor
     signal = add_dac_noise(
         signal, dac_nsd_dbfs_hz, full_scale, sampling_rate, seed=effect_seed(1),
     )
 
-    # 7. Reconstruction filter, output stage - added later (noise 08, 09)
+    # 7. Reconstruction filter, output stage - added later (hardware 08, 09)
 
     return signal
