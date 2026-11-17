@@ -1,40 +1,5 @@
-# Python
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.venv/
-venv/
-
-# Vivado / Vitis build and runtime output
-.Xil/
-*.jou
-*.log
-*.str
-*.runs/
-*.cache/
-*.hw/
-*.ip_user_files/
-*.sim/
-*.gen/
-.hbs/
-vivado_pid*.zip
-webtalk*
-*.bit
-*.ltx
-
-# KiCad backups and local state
-*-backups/
-*.kicad_prl
-fp-info-cache
-_autosave-*
-*.lck
-
-# LTspice generated output
-*.raw
-*.op.raw
-
-# Editors and OS
-.idea/
-.vscode/
-.DS_Store
-Thumbs.db
+# Track only the engineering and measurement folders; everything else stays local
+/*
+!/.gitignore
+!/02_Engineering/
+!/05_Measurements/
