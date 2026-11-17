@@ -12,14 +12,14 @@ Run from 02_DSP_Model so params.py and the packages are found.
 
 ARCHITECTURE
 ------------
-  params.py          all parameter values (transmitter + noise), no code
+  params.py          all parameter values (transmitter + hardware datasheet values), no code
       |
   pipeline/fpga_pipeline.py      dsp/ stages 01-07 = ideal FPGA transmitter
       |                          -> IF samples sent to the DAC
   pipeline/hardware_pipeline.py  noise/ = what happens after the FPGA
-      |                          (DAC impairments, filter, thermal noise)
+      |                          (DAC, clock, filter, output stage; datasheet units)
       |                          -> transmitter output
-  analysis/          virtual instruments (spectrum, later EVM), only measure
+  analysis/          virtual instruments (spectrum, VSA/EVM, later RF metrics), only measure
   visualization.py   all figures (clean FPGA signal + noisy output), only plot
   main.py            entry point: runs everything, SHOW_* switches
   tests/             checks every stage and the whole chain independently
@@ -28,14 +28,16 @@ Processing chain:
   PRBS15 bits -> Gray 16-QAM mapping -> normalization (/sqrt(10))
   -> zero-insertion upsampling (x100) -> RRC filter design
   -> FIR pulse shaping -> quadrature IF modulation (5 MHz)      [FPGA]
-  -> DAC impairments -> analog filter -> thermal noise (AWGN)    [hardware]
+  -> quantization -> nonlinearity/offset -> clock jitter/phase noise
+  -> zero-order hold -> DAC noise -> filter -> output stage    [hardware]
   -> spectrum / EVM                                              [analysis]
 
 
 FILES
 -----
 params.py
-    All parameter values: symbols, rates, IF, RRC roll-off/span, noise.
+    All parameter values: symbols, rates, IF, RRC roll-off/span, and the
+    hardware values (datasheet or marked ASSUMPTION; None = effect off).
 
 main.py
     Entry point. SHOW_* switches at the top turn single figures on/off.
@@ -53,11 +55,19 @@ dsp/05_rrc_filter_design.py         design_rrc: unit-energy RRC coefficients
 dsp/06_fir_pulse_shaping.py         apply_fir: full linear convolution
 dsp/07_quadrature_if_modulation.py  modulate_to_if: I cos - Q sin
 
-noise/01_awgn.py                    add_awgn: white Gaussian noise at a given SNR
-noise/02 ... 06                     DAC quantization, clock jitter, phase noise,
-                                    DAC nonlinearity, DC offset (to be written)
+noise/01_awgn.py                    add_awgn: noise at a given SNR (theory figures)
+                                    add_dac_noise: DAC noise floor from NSD (dBFS/Hz)
+noise/02_dac_quantization.py        quantize_dac: N-bit two's complement DAC
+                                    compute_full_scale: full scale from peak + back-off
+noise/03_clock_jitter.py            add_clock_jitter: oscillator + DAC RMS jitter
+noise/04 ... 09                     phase noise, nonlinearity, offset/gain error,
+                                    zero-order hold, reconstruction filter,
+                                    output stage (to be written)
 
 analysis/01_fft_spectrum.py         compute_spectrum: |X[k]|/N in dB (virtual spectrum analyzer)
+analysis/02_evm.py                  demodulate_if: VSA (delay, gain, phase sync from known
+                                    symbols); compute_evm: RMS EVM in %
+analysis/03_rf_metrics.py           PSD in dBm/Hz, ACLR, SFDR (to be written)
 
 pipeline/fpga_pipeline.py
     run_fpga_pipeline(): connects dsp stages 01-07 and returns a

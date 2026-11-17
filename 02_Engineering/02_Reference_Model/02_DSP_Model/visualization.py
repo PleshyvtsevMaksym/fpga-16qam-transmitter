@@ -469,3 +469,97 @@ def plot_noisy_constellation(
     axes.flat[0].legend(loc="upper right", markerscale=3)
 
     return fig
+
+
+def plot_received_constellation(
+    received_symbols: np.ndarray,
+    normalized_symbols: np.ndarray,
+    evm_percent: float,
+    hardware_label: str | None = None,
+):
+    """
+    Plot the constellation measured at the transmitter output.
+
+    The symbols come from the virtual analyzer (demodulate_if) applied to
+    the output of the hardware pipeline, so they contain every modelled
+    impairment. Red lines are the decision boundaries.
+
+    Parameters
+    ----------
+    received_symbols : np.ndarray
+        Complex symbols recovered by demodulate_if().
+    normalized_symbols : np.ndarray
+        Ideal transmitted symbols at Es = 1 (reference points).
+    evm_percent : float
+        RMS EVM of the received symbols, shown in the title.
+    hardware_label : str, optional
+        Short description of the hardware parameters, shown in the title.
+    """
+
+    # 1. Ideal points and decision boundaries
+    ideal = np.unique(normalized_symbols)
+    boundaries = np.array([-2, 0, 2]) / np.sqrt(10)
+
+    fig, ax = plt.subplots(figsize=(6.5, 6.5))
+    title = f"Transmitter Output Constellation: EVM = {evm_percent:.2f} %"
+    if hardware_label:
+        title += f"\n{hardware_label}"
+    fig.suptitle(title)
+
+    # 2. Received cloud, ideal points, boundaries
+    ax.scatter(received_symbols.real, received_symbols.imag, s=3, alpha=0.4,
+               color=I_COLOR, label="Received symbols")
+    ax.scatter(ideal.real, ideal.imag, s=30, color="black", zorder=3,
+               label="Ideal points")
+    for b in boundaries:
+        ax.axvline(b, color=MARK_COLOR, linewidth=0.8, zorder=4)
+        ax.axhline(b, color=MARK_COLOR, linewidth=0.8, zorder=4)
+
+    ax.set_aspect("equal")
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
+    ax.set_xlabel("In-phase (I)")
+    ax.set_ylabel("Quadrature (Q)")
+    ax.legend(loc="upper right", markerscale=3)
+
+    return fig
+
+
+def plot_evm_sweep(
+    x_values: np.ndarray,
+    evm_measured: np.ndarray,
+    evm_theory: np.ndarray,
+    x_label: str,
+    evm_limit: float | None = None,
+):
+    """
+    Plot measured EVM against one swept hardware parameter, with theory.
+
+    Parameters
+    ----------
+    x_values : np.ndarray
+        Values of the swept parameter (for example DAC NSD in dBFS/Hz).
+    evm_measured : np.ndarray
+        EVM from the virtual analyzer, in percent.
+    evm_theory : np.ndarray
+        Expected EVM in percent, same length as x_values.
+    x_label : str
+        Name and unit of the swept parameter (x axis label).
+    evm_limit : float, optional
+        Requirement line in percent (for example 12.5 % for LTE 16-QAM).
+    """
+
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    fig.suptitle(f"EVM vs {x_label.split(' (')[0]} at the transmitter output")
+
+    ax.semilogy(x_values, evm_theory, "-", color="gray", label="Theory")
+    ax.semilogy(x_values, evm_measured, "o", color=I_COLOR, label="Model (analyzer)")
+    if evm_limit is not None:
+        ax.axhline(evm_limit, color=MARK_COLOR, linestyle="--",
+                   label=f"Limit {evm_limit} %")
+
+    ax.set_xlabel(x_label)
+    ax.set_ylabel("EVM (%)")
+    ax.legend(loc="upper left")
+
+    return fig

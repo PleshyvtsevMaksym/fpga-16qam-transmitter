@@ -32,8 +32,20 @@ RRC_SPAN = 8                  # Symbols
 
 
 # ============================================================
-# 4. NOISE PARAMETERS
+# 4. HARDWARE PARAMETERS (datasheet values)
 # ============================================================
+# Every value comes from a datasheet (cite it here) or is marked
+# ASSUMPTION until the component is chosen. None = effect switched off.
 
-AWGN_SNR_DB = 20              # None = clean signal
-NOISE_SEED = 1                # Same noise on every run
+NOISE_SEED = 1                     # Same random effects on every run
+
+# 4.1 DAC resolution and scaling
+DAC_BITS = 12                      # Resolution N; ASSUMPTION (no DAC chosen yet)
+DAC_BACKOFF_DB = 0.0               # Signal peak below DAC full scale, dB (design choice)
+
+# 4.2 DAC output noise
+DAC_NSD_DBFS_HZ = -150.0           # Noise spectral density, dBFS/Hz; ASSUMPTION
+
+# 4.3 Clock
+CLOCK_JITTER_RMS = 1e-12           # Oscillator RMS phase jitter (12 kHz-20 MHz), s; ASSUMPTION
+DAC_JITTER_RMS = None              # DAC internal (aperture) jitter, s; None = not given
