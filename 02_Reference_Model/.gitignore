@@ -1,0 +1,37 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local Python environments
+.venv/
+venv/
+env/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+
+# Coverage reports
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Notebook checkpoints and local editor settings
+.ipynb_checkpoints/
+.idea/
+.vscode/
+
+# Local configuration and operating-system files
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
+# Generated results; keep the directory in Git
+/results/*
+!/results/.gitkeep

@@ -1,0 +1,90 @@
+16-QAM DSP REFERENCE MODEL - PROJECT OVERVIEW
+=============================================
+
+HOW TO RUN (from the 02_DSP_Model folder, in PowerShell)
+---------------------------------------------------------
+  py main.py          run both pipelines, print the report, show the figures
+  py -m tests.test    run all tests, PASS/FAIL summary at the end
+
+Use "py", not "python": "python" here starts a Python 3.13 without NumPy.
+Run from 02_DSP_Model so params.py and the packages are found.
+
+
+ARCHITECTURE
+------------
+  params.py          all parameter values (transmitter + noise), no code
+      |
+  pipeline/fpga_pipeline.py      dsp/ stages 01-07 = ideal FPGA transmitter
+      |                          -> IF samples sent to the DAC
+  pipeline/hardware_pipeline.py  noise/ = what happens after the FPGA
+      |                          (DAC impairments, filter, thermal noise)
+      |                          -> transmitter output
+  analysis/          virtual instruments (spectrum, later EVM), only measure
+  visualization.py   all figures (clean FPGA signal + noisy output), only plot
+  main.py            entry point: runs everything, SHOW_* switches
+  tests/             checks every stage and the whole chain independently
+
+Processing chain:
+  PRBS15 bits -> Gray 16-QAM mapping -> normalization (/sqrt(10))
+  -> zero-insertion upsampling (x100) -> RRC filter design
+  -> FIR pulse shaping -> quadrature IF modulation (5 MHz)      [FPGA]
+  -> DAC impairments -> analog filter -> thermal noise (AWGN)    [hardware]
+  -> spectrum / EVM                                              [analysis]
+
+
+FILES
+-----
+params.py
+    All parameter values: symbols, rates, IF, RRC roll-off/span, noise.
+
+main.py
+    Entry point. SHOW_* switches at the top turn single figures on/off.
+
+dsp/__init__.py
+    Loads the numbered modules with importlib (names starting with a digit
+    cannot be imported normally) and exports the functions, so you can
+    write: from dsp import design_rrc
+
+dsp/01_prbs15_generation.py         prbs15_generator: 15-bit LFSR, seed 0x0001
+dsp/02_16qam_gray_mapping.py        qam16_gray_mapping / qam16_gray_demapping
+dsp/03_symbol_normalization.py      normalize_symbols: divide by sqrt(Es)
+dsp/04_zero_insertion_upsampling.py upsample_symbols: symbol + (sps - 1) zeros
+dsp/05_rrc_filter_design.py         design_rrc: unit-energy RRC coefficients
+dsp/06_fir_pulse_shaping.py         apply_fir: full linear convolution
+dsp/07_quadrature_if_modulation.py  modulate_to_if: I cos - Q sin
+
+noise/01_awgn.py                    add_awgn: white Gaussian noise at a given SNR
+noise/02 ... 06                     DAC quantization, clock jitter, phase noise,
+                                    DAC nonlinearity, DC offset (to be written)
+
+analysis/01_fft_spectrum.py         compute_spectrum: |X[k]|/N in dB (virtual spectrum analyzer)
+
+pipeline/fpga_pipeline.py
+    run_fpga_pipeline(): connects dsp stages 01-07 and returns a
+    dictionary with every intermediate array.
+
+pipeline/hardware_pipeline.py
+    run_hardware_pipeline(): IF samples -> noise models in physical order
+    -> transmitter output.
+
+pipeline/pipeline_report.py
+    Terminal report: configuration and the size of every stage output.
+    [DONE] means "executed", not "verified".
+
+visualization.py
+    plot_constellation, plot_symbol_processing, plot_rrc_response,
+    plot_if_waveform and plot_spectra (clean FPGA signal + noisy transmitter
+    output), plot_noisy_constellation (theory illustration: AWGN on symbols).
+
+tests/test.py
+    Runs every tests/test_*.py file and prints PASS / FAIL / ERROR / SKIPPED.
+
+tests/test_01_prbs15.py ... tests/test_08_spectrum.py
+    One file per DSP stage (test_08 = analysis/01_fft_spectrum). Expected
+    values come from hand calculations, definitions and known signal properties.
+
+tests/test_09_end_to_end.py
+    Whole FPGA pipeline: array lengths, baseband and IF consistency,
+    bandwidth, and an independent reference receiver that recovers all bits.
+
+To run one test file only:  py -m unittest tests.test_05_rrc_design -v
