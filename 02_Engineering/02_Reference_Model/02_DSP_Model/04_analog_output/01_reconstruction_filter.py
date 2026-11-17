@@ -1,1 +1,1 @@
-"""04-01 Analog reconstruction filter: type, order, cutoff frequency (to be implemented)."""
+"""04-01 Reconstruction filter: analog filter type, order and cutoff frequency (to be implemented)."""

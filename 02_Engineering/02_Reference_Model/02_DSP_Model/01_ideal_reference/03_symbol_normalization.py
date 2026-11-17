@@ -1,4 +1,4 @@
-"""Stage 03: Symbol energy normalization."""
+"""01-03 Symbol normalization: scale the symbols to unit average energy."""
 
 import numpy as np
 

@@ -1,4 +1,4 @@
-"""03-01 DAC quantization (ideal N-bit DAC, two's complement codes)."""
+"""03-01 DAC quantization: ideal N-bit DAC with two's complement codes."""
 
 import numbers
 
@@ -11,28 +11,24 @@ def quantize_dac(
     full_scale: float
 ) -> np.ndarray:
     """
-    Quantize a real signal to the output levels of an ideal N-bit DAC.
+    Quantize samples to the 2^N output levels of an ideal N-bit DAC.
 
-    The bipolar range [-full_scale, +full_scale) is divided into 2^N
-    codes of width delta = 2 * full_scale / 2^N (LSB). Each sample is
-    rounded to the nearest code, codes are limited to the two's complement
-    range -2^(N-1) ... 2^(N-1) - 1 (saturation), and converted back to
-    the analog value code * delta.
+    Two's complement codes in -2^(N-1) ... 2^(N-1) - 1 (saturated),
+    LSB = 2 * full_scale / 2^N.
 
     Parameters
     ----------
     samples : np.ndarray
-        Real IF samples sent from the FPGA to the DAC.
+        Real IF samples from the FPGA.
     num_bits : int or None
-        DAC resolution N. None returns a clean copy (ideal DAC).
+        DAC resolution N. None = ideal DAC (clean copy).
     full_scale : float
-        Signal value that corresponds to the DAC full scale (same units
-        as the samples). Choosing it sets the back-off of the signal.
+        Signal value at DAC full scale.
 
     Returns
     -------
     np.ndarray
-        Quantized samples, same length, same units as the input.
+        Quantized samples, same length and units.
     """
     # 1. Input validation
     if not isinstance(samples, np.ndarray):
@@ -79,26 +75,17 @@ def compute_full_scale(samples: np.ndarray, backoff_db: float) -> float:
     """
     Compute the DAC full scale from the signal peak and the back-off.
 
-    The FPGA scales its output so that the signal peak sits backoff_db
-    below the DAC full scale (0 dB = peak exactly at full scale):
-
-        full_scale = max(|x|) * 10^(backoff_db / 20)
-
-    More back-off leaves headroom for gain/offset errors and nonlinearity,
-    but uses fewer DAC codes, so the quantization SNR drops by the same
-    number of dB.
-
     Parameters
     ----------
     samples : np.ndarray
-        Real IF samples sent from the FPGA to the DAC.
+        Real IF samples from the FPGA.
     backoff_db : float
-        Peak back-off from full scale in dB, >= 0.
+        Peak below full scale in dB, >= 0.
 
     Returns
     -------
     float
-        Signal value that corresponds to the DAC full scale.
+        Signal value at DAC full scale: max(|x|) * 10^(backoff / 20).
     """
 
     # 1. Input validation

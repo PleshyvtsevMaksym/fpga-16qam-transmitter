@@ -1,1 +1,1 @@
-"""05-04 Oscilloscope: sample rate, vertical resolution (ENOB), record length of the lab instrument (to be implemented)."""
+"""05-04 Oscilloscope: model of the lab instrument, sample rate, vertical resolution (ENOB), record length (to be implemented)."""

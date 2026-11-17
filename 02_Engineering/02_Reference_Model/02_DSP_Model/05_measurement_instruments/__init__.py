@@ -12,5 +12,6 @@ _spectrum = import_module("05_measurement_instruments.01_spectrum_analyzer")
 _vsa = import_module("05_measurement_instruments.02_vector_signal_analyzer")
 
 compute_spectrum = _spectrum.compute_spectrum
+compute_psd = _spectrum.compute_psd
 demodulate_if = _vsa.demodulate_if
 compute_evm = _vsa.compute_evm

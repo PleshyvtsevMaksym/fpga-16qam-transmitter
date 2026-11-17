@@ -4,7 +4,10 @@
 HOW TO RUN (from the 02_DSP_Model folder, in PowerShell)
 ---------------------------------------------------------
   py main.py          run pipelines 01-05, print the reports, show the figures
-  py -m tests.test    run all tests, PASS/FAIL summary at the end
+  py -m 07_graph_report   save the PDF report of all graphs to the next version
+                      ..\results\DSP_Graphs\v0.0, v0.1, ...
+  py -m 07_graph_report --major   same, but start a new major version (v1.0, v2.0, ...)
+  py -m 08_tests.test     run all tests, PASS/FAIL summary at the end
 
 Use "py", not "python": "python" here starts a Python 3.13 without NumPy.
 Run from 02_DSP_Model so params.py and the packages are found.
@@ -13,25 +16,26 @@ Run from 02_DSP_Model so params.py and the packages are found.
 ARCHITECTURE
 ------------
 Five models, one folder each, in the order the signal passes through them.
-Every folder has its own pipeline in pipeline/.
+Every folder has its own pipeline in 06_pipeline/.
 
   01_ideal_reference/          PRBS15 -> 16-QAM -> RRC -> ideal IF (floating point)
       |                        the mathematical reference, never changed
   02_bit_true_fpga/            fixed-point FIR, DDS/NCO, rounding, saturation
       |                        -> DAC codes, exactly as the HDL will compute
   03_physical_dac/             code-to-analog, nonlinearity, clock events
-      |                        (jitter, phase noise), zero-order hold, DAC noise
+      |                        (jitter, phase noise), zero-order hold, glitches, settling, DAC noise
   04_analog_output/            reconstruction filter, output stage, load, noise
       |                        -> transmitter output
   05_measurement_instruments/  spectrum analyzer, VSA (EVM), RF metrics,
                                oscilloscope: only measure, never change
 
-  pipeline/          one pipeline per model (01-05) + terminal reports
+  06_pipeline/       one pipeline per model (01-05) + terminal reports
   params.py          all values: transmitter (1-3), FPGA word widths (4),
                      DAC datasheet values (5), analog output (6)
-  visualization.py   all figures, only plot
+  visualization.py   all figures, only plot (on screen, for main.py)
+  07_graph_report/   separate PDF report command (py -m 07_graph_report)
   main.py            runs 01 -> 05, SHOW_* switches, USE_FIXED_POINT_FPGA
-  tests/             checks every block and the whole chain
+  08_tests/          checks every block and the whole chain
 
 Folder and file names start with a digit, so they are loaded with
 importlib.import_module("01_ideal_reference") and re-exported by each
@@ -57,11 +61,13 @@ FILES
 03_physical_dac/
     01_dac_quantization.py          quantize_dac (N-bit two's complement),
                                     compute_full_scale (peak + back-off)
-    02_dac_nonlinearity.py          SFDR / HD2 / HD3 (to be written)
-    03_offset_gain_error.py         offset and gain error, % FSR (to be written)
+    02_dac_nonlinearity.py          apply_dac_nonlinearity: polynomial from HD2/HD3, dBc
+    03_offset_gain_error.py         apply_offset_gain_error: offset and gain error, % FSR
     04_clock_jitter.py              add_clock_jitter: oscillator + DAC RMS jitter
-    05_phase_noise.py               oscillator L(f) mask (to be written)
-    06_zero_order_hold.py           sinc roll-off and images (to be written)
+    05_phase_noise.py               add_clock_phase_noise: oscillator L(f) mask, dBc/Hz
+    06_output_dynamics.py           apply_zero_order_hold (analog grid M*Fs),
+                                    add_dac_glitches (glitch impulse, V*s),
+                                    apply_settling (settling time, 1-pole)
     07_dac_noise.py                 add_dac_noise: noise floor from NSD, dBFS/Hz
 
 04_analog_output/
@@ -70,40 +76,58 @@ FILES
     03_analog_noise.py              add_awgn: noise at a given SNR (theory figures)
 
 05_measurement_instruments/
-    01_spectrum_analyzer.py         compute_spectrum: |X[k]|/N in dB
+    01_spectrum_analyzer.py         compute_spectrum: |X[k]|/N in dB,
+                                    compute_psd: Welch PSD in dBFS/Hz at a given RBW
     02_vector_signal_analyzer.py    demodulate_if (delay, gain, phase sync from the
                                     known symbols), compute_evm: RMS EVM in %
     03_rf_metrics.py                PSD in dBm/Hz, ACLR, SFDR (to be written)
     04_oscilloscope.py              sample rate, ENOB, record length (to be written)
 
-pipeline/
+06_pipeline/
     01_ideal_reference_pipeline.py  run_ideal_reference_pipeline -> dict of every signal
     02_bit_true_fpga_pipeline.py    run_bit_true_fpga_pipeline -> DAC codes, IF in
                                     ideal units, full_scale, word-width report;
                                     golden reference for the HDL testbench
-    03_physical_dac_pipeline.py     run_physical_dac_pipeline -> DAC output
+    03_physical_dac_pipeline.py     run_physical_dac_pipeline -> signal after every
+                                    step, DAC output at Fs_a = M*Fs
     04_analog_output_pipeline.py    run_analog_output_pipeline -> transmitter output
-    05_measurement_pipeline.py      run_measurement_pipeline -> spectrum, symbols,
-                                    sync, EVM
+    05_measurement_pipeline.py      run_measurement_pipeline -> PSD, symbols, sync,
+                                    EVM (VSA RRC designed at the input rate)
     pipeline_report.py              print_pipeline_report (01), print_fixed_point_report (02)
 
 visualization.py
-    plot_constellation, plot_symbol_processing, plot_rrc_response,
-    plot_if_waveform, plot_spectra, plot_noisy_constellation,
-    plot_received_constellation, plot_evm_sweep.
+    Figures in signal-chain order, ideal (black) vs realistic:
+    1 plot_constellation   2 plot_pulse_shaping   3 plot_fpga_output
+    4 plot_dac_transfer    5 plot_dac_clock       6 plot_dac_output_dynamics
+    7 plot_measurement     8 plot_evm_sweep       theory: plot_noisy_constellation
+    Style: SciencePlots if installed (py -m pip install SciencePlots).
 
-tests/test.py
-    Runs every tests/test_*.py file and prints PASS / FAIL / ERROR / SKIPPED.
+07_graph_report/  (py -m 07_graph_report, about 30 s)
+    01_report_context.py   version folders vX.Y, git commit, parameter block of the run
+    02_report_page.py      A4 landscape page: title + run stamp, parameters on top,
+                           plot, MEASURED VALUES box, description
+    03_report_figures.py   24 pages in signal-path order (PAGES): 01 ideal, 02 FPGA,
+                           03 DAC step by step (black = before the step, colour =
+                           after), 03-8/03-9 ideal DAC vs real DAC (all effects),
+                           04-1 analog output (filter not modelled yet), 05 instruments
+    04_build_report.py     runs the model, writes into results/DSP_Graphs/vX.Y:
+                           one PDF per page, DSP_Report_vX.Y.pdf (all pages),
+                           terminal_report.txt, params_snapshot.py (exact params)
 
-tests/test_01_prbs15.py ... tests/test_08_spectrum.py
-    One file per 01 stage (test_08 = 05-01 spectrum analyzer). Expected
-    values come from hand calculations, definitions and known signal properties.
+08_tests/test.py
+    Runs all tests or chosen folders and prints PASS / FAIL per folder:
+        py -m 08_tests.test                 py -m 08_tests.test 03_physical_dac
+    One folder per model part, one file per source file (test_01_... = 01_...):
+        00_project/                  params.py consistency, main.py helpers and full run
+        01_ideal_reference/          01-01 ... 01-07
+        02_bit_true_fpga/            02-01 fixed point, 02-02 NCO
+        03_physical_dac/             03-01 ... 03-07
+        04_analog_output/            04-03 AWGN (04-01/02 not written yet)
+        05_measurement_instruments/  05-01 spectrum analyzer + PSD, 05-02 VSA + EVM
+        06_pipeline/                 pipelines 01 ... 05 and the report
+        visualization/               every figure from real model data
+        07_graph_report/             versions, parameter block, page, full PDF build
+    Expected values come from hand calculations, datasheet formulas and
+    independent reference implementations written inside the tests.
 
-tests/test_09_end_to_end.py
-    Whole 01 ideal reference pipeline: array lengths, baseband and IF
-    consistency, bandwidth, and an independent receiver that recovers all bits.
-
-tests/test_10_fixed_point.py
-    02 bit-true FPGA: fixed-point arithmetic by hand, DDS, pipeline vs ideal.
-
-To run one test file only:  py -m unittest tests.test_05_rrc_design -v
+To run one test file only:  py -m unittest 08_tests.03_physical_dac.test_06_output_dynamics -v

@@ -1,4 +1,4 @@
-"""Stage 06: FIR pulse shaping by full linear convolution."""
+"""01-06 FIR pulse shaping: full linear convolution with the RRC."""
 
 import numpy as np
 

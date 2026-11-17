@@ -1,4 +1,3 @@
-"""03-02 DAC nonlinearity from datasheet SFDR / HD2 / HD3, dBc (to be implemented)."""
 """03-02 DAC nonlinearity: harmonic distortion from datasheet HD2 / HD3."""
 
 import numpy as np
@@ -9,47 +8,70 @@ def apply_dac_nonlinearity(
     full_scale: float,
     hd2_dbc: float | None,
     hd3_dbc: float | None,
-    test_level_dbfs: float = 0.0
+    test_level_dbfs: float
 ) -> np.ndarray:
     """
-    Apply the static nonlinearity of a DAC given by its harmonic distortion.
+    Apply the static DAC nonlinearity given by datasheet HD2 / HD3.
 
-    The DAC transfer curve is modelled as a memoryless polynomial of the
-    signal normalized to full scale, u = x / full_scale:
-
-        y = full_scale * (u + a2 * u^2 + a3 * u^3)
-
-    Datasheets give HD2 and HD3 in dBc for a sine of amplitude A
-    (test_level_dbfs, A = 10^(level / 20) of full scale). For
-    u = A * cos(wt) the harmonics are a2 * A^2 / 2 and a3 * A^3 / 4,
-    so relative to the carrier A:
-
-        a2 = 2 * 10^(HD2 / 20) / A
-        a3 = 4 * 10^(HD3 / 20) / A^2
-
-    Both coefficients are taken positive (the sign is not given in
-    datasheets; assumption). HD2 also creates a DC term a2 * A^2 / 2,
-    HD3 also slightly changes the gain at the carrier, as in a real DAC.
+    Polynomial y = FS * (u + a2 u^2 + a3 u^3), u = x / FS, with a2 and a3
+    chosen so that a sine at the test level gives HD2 and HD3.
 
     Parameters
     ----------
     samples : np.ndarray
-        Real DAC output samples (after quantization).
+        Real DAC samples.
     full_scale : float
-        Signal value at DAC full scale (same units as the samples).
-    hd2_dbc : float or None
-        Second harmonic distortion in dBc (negative, e.g. -70).
-        None switches the second-order term off.
-    hd3_dbc : float or None
-        Third harmonic distortion in dBc (negative, e.g. -75).
-        None switches the third-order term off.
-    test_level_dbfs : float, optional
-        Sine level at which the datasheet specifies HD2/HD3, in dBFS
-        (0 = full scale, typical values 0 or -1).
+        Signal value at DAC full scale.
+    hd2_dbc, hd3_dbc : float or None
+        2nd / 3rd harmonic distortion in dBc (negative). None = term off.
+    test_level_dbfs : float
+        Sine level of the datasheet HD spec in dBFS (<= 0).
 
     Returns
     -------
     np.ndarray
-        Distorted samples, same length and units as the input.
-        Both terms None returns a clean copy (linear DAC).
+        Distorted samples, same length and units.
     """
+
+    # 1. Input validation
+    if not isinstance(samples, np.ndarray):
+        raise TypeError("Samples must be a NumPy array.")
+
+    if samples.ndim != 1 or samples.size == 0:
+        raise ValueError("Samples must be a non-empty 1D array.")
+
+    if np.iscomplexobj(samples):
+        raise TypeError("Samples must be real DAC output samples.")
+
+    for hd_dbc in (hd2_dbc, hd3_dbc):
+        if hd_dbc is not None and (not np.isfinite(hd_dbc) or hd_dbc >= 0):
+            raise ValueError("Harmonic distortion must be a negative finite value in dBc.")
+
+    # 2. Linear DAC bypass
+    if hd2_dbc is None and hd3_dbc is None:
+        return samples.copy()
+
+    if not np.isfinite(full_scale) or full_scale <= 0:
+        raise ValueError("Full scale must be a positive finite number.")
+
+    if not np.isfinite(test_level_dbfs) or test_level_dbfs > 0:
+        raise ValueError("Test level must be a finite value <= 0 dBFS.")
+
+    # 3. Normalize to full scale
+    normalized_samples = samples / full_scale
+
+    # 4. Amplitude of the datasheet test sine
+    test_amplitude = 10 ** (test_level_dbfs / 20)
+
+    # 5. Polynomial coefficients from HD2 and HD3 (None = term off)
+    a2 = 0.0 if hd2_dbc is None else 2 * 10 ** (hd2_dbc / 20) / test_amplitude
+    a3 = 0.0 if hd3_dbc is None else 4 * 10 ** (hd3_dbc / 20) / test_amplitude ** 2
+
+    # 6. Apply the transfer curve and scale back
+    distorted_samples = full_scale * (
+        normalized_samples
+        + a2 * normalized_samples ** 2
+        + a3 * normalized_samples ** 3
+    )
+
+    return distorted_samples

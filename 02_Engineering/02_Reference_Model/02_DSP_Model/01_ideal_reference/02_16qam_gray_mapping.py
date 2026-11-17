@@ -1,4 +1,4 @@
-"""Stage 02: Gray-coded 16-QAM mapping and ideal demapping."""
+"""01-02 16-QAM Gray mapping: bits to symbols and ideal demapping."""
 
 
 # Gray code per axis: neighbouring levels differ in exactly one bit

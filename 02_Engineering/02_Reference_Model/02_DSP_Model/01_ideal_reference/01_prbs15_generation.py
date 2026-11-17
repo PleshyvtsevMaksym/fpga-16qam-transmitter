@@ -1,5 +1,4 @@
-
-"""Stage 01: PRBS15 bit generation using the Xilinx XAPP884 architecture."""
+"""01-01 PRBS15 generation: bit source using the Xilinx XAPP884 architecture."""
 
 
 def prbs15_generator(num_bits: int, seed: int = 0x7FFF) -> list[int]:

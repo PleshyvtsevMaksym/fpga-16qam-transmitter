@@ -1,4 +1,4 @@
-"""Stage 04: Zero-insertion upsampling."""
+"""01-04 Zero-insertion upsampling: one symbol followed by sps - 1 zeros."""
 
 import numpy as np
 

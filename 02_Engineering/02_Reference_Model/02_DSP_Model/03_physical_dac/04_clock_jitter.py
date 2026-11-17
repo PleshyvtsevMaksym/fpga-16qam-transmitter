@@ -1,4 +1,4 @@
-"""03-04 DAC clock jitter (random white jitter of the update instants)."""
+"""03-04 Clock jitter: random white jitter of the DAC update instants."""
 
 import numpy as np
 
@@ -7,52 +7,33 @@ def add_clock_jitter(
     samples: np.ndarray,
     clock_jitter_rms: float | None,
     sampling_rate: float,
-    dac_jitter_rms: float | None = None,
-    seed: int | None = None
+    dac_jitter_rms: float | None,
+    seed: int | None
 ) -> np.ndarray:
     """
-    Add the amplitude error caused by random jitter of the DAC clock.
+    Add the error of white random jitter of the DAC clock edges.
 
-    Two datasheet values add up as independent random variables:
-        - clock oscillator: "RMS phase jitter" (integrated, e.g. 12 kHz-20 MHz)
-        - DAC: internal "aperture jitter" / clock input jitter
-    sigma_t = sqrt(clock_jitter_rms^2 + dac_jitter_rms^2)
-
-    A DAC holds each value for one clock period (NRZ). The step from
-    x[n-1] to x[n] happens at n * Ts + dt_n instead of n * Ts, where dt_n
-    is white Gaussian with RMS value sigma_t. A late edge (dt_n > 0) keeps
-    the old value for dt_n seconds: an error pulse of height
-    -(x[n] - x[n-1]) and width dt_n. Over one sample period it is
-    equivalent to the sample error
-
-        e[n] = -(x[n] - x[n-1]) * dt_n / Ts,   x[-1] = 0 (DAC at mid-scale)
-
-    For a sine of frequency f this gives
-    SNR_jitter ~ -20 * log10(2 * pi * f * sigma_t) dB.
-
-    Only the white (wideband) part of the jitter is modelled here. Slow,
-    correlated jitter is the phase noise of the clock (03-05).
+    Every DAC step x[n] - x[n-1] happens dt_n too late or early,
+    dt_n ~ N(0, sigma_t), sigma_t = sqrt(clock^2 + dac^2):
+    e[n] = -(x[n] - x[n-1]) * dt_n * Fs.
 
     Parameters
     ----------
     samples : np.ndarray
-        Real samples at the DAC output (after quantization).
+        Real DAC samples at the DAC rate.
     clock_jitter_rms : float or None
-        RMS jitter of the clock oscillator in seconds (e.g. 1e-12 = 1 ps).
-        None means an ideal clock.
+        Oscillator RMS jitter in s. None = ideal clock.
     sampling_rate : float
-        DAC sample rate in Hz.
-    dac_jitter_rms : float or None, optional
-        RMS internal jitter of the DAC in seconds. None means not given.
-    seed : int, optional
-        Seed of the random generator, so the same jitter is produced
-        on every run.
+        DAC sample rate Fs in Hz.
+    dac_jitter_rms : float or None
+        DAC internal (aperture) RMS jitter in s. None = not given.
+    seed : int or None
+        Random seed (repeatable results).
 
     Returns
     -------
     np.ndarray
-        Samples with jitter error added, same length, same units
-        as the input.
+        Samples with jitter error, same length and units.
     """
 
     # 1. Input validation

@@ -1,4 +1,4 @@
-"""Stage 05: Root Raised Cosine (RRC) FIR filter design."""
+"""01-05 RRC filter design: Root Raised Cosine FIR coefficients."""
 
 import numpy as np
 

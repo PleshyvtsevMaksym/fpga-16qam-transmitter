@@ -10,7 +10,7 @@ import numpy as np
 def add_awgn(
     samples: np.ndarray,
     snr_db: float | None,
-    seed: int | None = None
+    seed: int | None
 ) -> np.ndarray:
     """
     Add white Gaussian noise to samples at a given signal-to-noise ratio.
@@ -28,7 +28,7 @@ def add_awgn(
         Real or complex 1D samples taken from any DSP stage.
     snr_db : float or None
         Signal-to-noise ratio per sample in dB. None returns a clean copy.
-    seed : int, optional
+    seed : int or None
         Seed for the random number generator, makes results repeatable.
 
     Returns

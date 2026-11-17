@@ -1,4 +1,4 @@
-"""Stage 09: Numerically controlled oscillator (DDS) for the IF carrier."""
+"""02-02 NCO: numerically controlled oscillator (DDS) for the IF carrier."""
 
 import numbers
 

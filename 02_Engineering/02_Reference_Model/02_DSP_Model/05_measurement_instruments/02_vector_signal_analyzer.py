@@ -1,6 +1,13 @@
-"""05-02 IF demodulation and EVM (virtual vector signal analyzer)."""
+"""05-02 Vector signal analyzer: IF demodulation, synchronization and EVM."""
 
 import numpy as np
+
+
+def _fft_convolve(x: np.ndarray, h: np.ndarray) -> np.ndarray:
+    """Full linear convolution of x and h via FFT (same result as np.convolve)."""
+    n_out = len(x) + len(h) - 1
+    n_fft = 1 << int(np.ceil(np.log2(n_out)))
+    return np.fft.ifft(np.fft.fft(x, n_fft) * np.fft.fft(h, n_fft))[:n_out]
 
 
 def demodulate_if(
@@ -24,7 +31,8 @@ def demodulate_if(
     2. Matched filter: time-reversed transmit RRC.
     3. Timing and frame sync: the delay d (in samples) that maximizes
            |c[d]| = | sum_k matched[d + sps*k] * conj(ref[k]) |
-       computed for all d at once with an FFT cross-correlation.
+       coarse with an FFT cross-correlation on a decimated grid,
+       then exact for every d around the coarse peak.
        For the ideal transmitter d = L - 1 (two RRC filters).
     4. Gain and phase: complex least-squares factor
            g = sum(conj(rx) * ref) / sum(|rx|^2),   rx_corrected = g * rx
@@ -96,22 +104,34 @@ def demodulate_if(
     )
 
     # 3. Matched filter: time-reversed transmit RRC
-    matched = np.convolve(baseband, rrc_coefficients[::-1])
+    matched = _fft_convolve(baseband, rrc_coefficients[::-1])
 
     if len(matched) < frame_length:
         raise ValueError("Signal is too short for the number of reference symbols.")
 
-    # 4. Timing and frame sync: cross-correlation with the known symbols
-    reference_train = np.zeros(frame_length, dtype=complex)
-    reference_train[::samples_per_symbol] = reference_symbols
-
-    n_fft = 1 << int(np.ceil(np.log2(len(matched) + frame_length)))
-    correlation = np.fft.ifft(
-        np.fft.fft(matched, n_fft) * np.conj(np.fft.fft(reference_train, n_fft))
-    )
-
+    # 4. Timing and frame sync: cross-correlation with the known symbols.
+    #    Coarse search on a decimated grid (>= 8 samples per symbol, the matched
+    #    output is band-limited), then exact search around the coarse peak.
     max_delay = len(matched) - frame_length
-    delay = int(np.argmax(np.abs(correlation[:max_delay + 1])))
+    step = max(d for d in range(1, samples_per_symbol + 1)
+               if samples_per_symbol % d == 0 and samples_per_symbol // d >= 8) \
+        if samples_per_symbol >= 8 else 1
+    coarse = matched[::step]
+    coarse_sps = samples_per_symbol // step
+    coarse_frame = coarse_sps * (num_symbols - 1) + 1
+    reference_train = np.zeros(coarse_frame, dtype=complex)
+    reference_train[::coarse_sps] = reference_symbols
+
+    n_fft = 1 << int(np.ceil(np.log2(len(coarse) + coarse_frame)))
+    correlation = np.fft.ifft(
+        np.fft.fft(coarse, n_fft) * np.conj(np.fft.fft(reference_train, n_fft))
+    )
+    coarse_delay = step * int(np.argmax(np.abs(correlation[:(max_delay // step) + 1])))
+
+    candidates = np.arange(max(0, coarse_delay - step), min(max_delay, coarse_delay + step) + 1)
+    symbol_positions = samples_per_symbol * np.arange(num_symbols)
+    fine = [np.abs(np.vdot(reference_symbols, matched[d + symbol_positions])) for d in candidates]
+    delay = int(candidates[int(np.argmax(fine))])
 
     # 5. One sample per symbol at the found delay
     received = matched[delay + samples_per_symbol * np.arange(num_symbols)]

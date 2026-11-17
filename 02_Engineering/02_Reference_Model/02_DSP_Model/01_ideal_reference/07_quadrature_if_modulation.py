@@ -1,4 +1,4 @@
-"""Stage 07: Quadrature modulation of complex baseband onto a digital IF."""
+"""01-07 Quadrature IF modulation: complex baseband onto a digital IF."""
 
 import numpy as np
 

@@ -1,253 +1,221 @@
 """
-Figures of the 16-QAM transmitter model.
+Figures of the 16-QAM transmitter model, in the order the signal passes the chain.
 
-Every function takes already calculated arrays, creates one figure and
-returns it. Nothing here repeats the DSP processing; the RRC frequency
-response uses the project's own compute_spectrum().
+    1 Symbol mapping (01)          2 Pulse shaping (01)
+    3 FPGA output, bit-true vs ideal (02)
+    4 DAC transfer curve (03-01..03)   5 DAC clock (03-04..05)
+    6 DAC output dynamics (03-06..07)  7 Instruments at the TX output (05)
+    8 EVM sweep (05)                   (theory) AWGN constellation
 
-Where the signal exists both inside the FPGA and at the transmitter
-output (IF waveform, IF spectrum), the figure shows the clean FPGA signal
-together with the noisy transmitter output.
-Call plt.show() once after creating the figures.
+Every figure shows the ideal reference (black) together with the realistic
+signal after that step. Spectra are measured with the virtual spectrum
+analyzer (compute_psd) in dBFS/Hz, the same units as the datasheet NSD.
+Style: SciencePlots if installed (py -m pip install SciencePlots), else a
+built-in equivalent. Call plt.show() once after creating the figures.
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
-
+import textwrap
 from importlib import import_module
 
-compute_spectrum = import_module("05_measurement_instruments").compute_spectrum
+import matplotlib.pyplot as plt
+import numpy as np
+
+try:
+    import scienceplots  # noqa: F401  (registers the "science" styles)
+    _BASE_STYLE = ["science", "grid", "no-latex"]
+except ImportError:
+    _BASE_STYLE = None
+
+_instruments = import_module("05_measurement_instruments")
+compute_spectrum = _instruments.compute_spectrum
+compute_psd = _instruments.compute_psd
 qam16_gray_demapping = import_module("01_ideal_reference").qam16_gray_demapping
 add_awgn = import_module("04_analog_output").add_awgn
 
-I_COLOR = "tab:blue"
-Q_COLOR = "tab:orange"
-IF_COLOR = "tab:green"
-MARK_COLOR = "tab:red"
-NOISY_COLOR = "tab:purple"
+# Okabe-Ito colour-blind safe palette, one colour per chain step
+IDEAL_COLOR = "#000000"
+FPGA_COLOR = "#0072B2"
+DAC_COLOR = "#56B4E9"
+CLOCK_COLOR = "#CC79A7"
+OUTPUT_COLOR = "#D55E00"
+TX_COLOR = "#009E73"
+Q_COLOR = "#E69F00"
+MARK_COLOR = "#999999"
 
 
 def apply_plot_style() -> None:
-    """Common appearance for all figures (readable at thesis page size)."""
+    """Common publication style for all figures."""
 
+    if _BASE_STYLE is not None:
+        plt.style.use(_BASE_STYLE)
     plt.rcParams.update({
-        "font.size": 10,
-        "axes.titlesize": 11,
-        "axes.grid": True,
-        "grid.linestyle": "--",
-        "grid.linewidth": 0.5,
-        "grid.alpha": 0.6,
-        "lines.linewidth": 1.0,
-        "legend.fontsize": 9,
+        "figure.dpi": 110,
+        "savefig.dpi": 300,
         "figure.constrained_layout.use": True,
+        "font.family": "serif" if _BASE_STYLE else "sans-serif",
+        "font.size": 9,
+        "axes.titlesize": 10,
+        "axes.labelsize": 9,
+        "figure.titlesize": 11,
+        "figure.titleweight": "bold",
+        "legend.fontsize": 8,
+        "legend.frameon": True,
+        "legend.framealpha": 0.9,
+        "legend.edgecolor": "0.8",
+        "axes.grid": True,
+        "grid.linestyle": ":",
+        "grid.linewidth": 0.5,
+        "grid.alpha": 0.7,
+        "axes.spines.top": bool(_BASE_STYLE),
+        "axes.spines.right": bool(_BASE_STYLE),
+        "lines.linewidth": 1.0,
+        "xtick.direction": "in",
+        "ytick.direction": "in",
     })
 
 
-def plot_constellation(symbols: np.ndarray, normalized_symbols: np.ndarray):
-    """
-    Plot the 16-QAM alphabet before and after energy normalization.
+def _psd(samples, sampling_rate, rbw, full_scale):
+    """Spectrum analyzer probe: frequencies in MHz and PSD in dBFS/Hz."""
+    frequencies, psd = compute_psd(samples, sampling_rate, rbw, full_scale)
+    return frequencies / 1e6, psd
 
-    Each distinct point is drawn once with its Gray bit label b0 b1 b2 b3
-    (b0 b1 select I, b2 b3 select Q). The plot shows the alphabet,
-    not how often each point occurs.
+
+def _psd_axes(ax, title, floor_db=-180, top_db=-40):
+    """Common labels and limits of a PSD panel."""
+    ax.set_title(title)
+    ax.set_xlabel("Frequency (MHz)")
+    ax.set_ylabel("PSD (dBFS/Hz)")
+    ax.set_ylim(floor_db, top_db)
+    ax.legend(loc="upper right")
+
+
+def _mark_band(ax, center_mhz, half_band_mhz):
+    """Shade the occupied signal band."""
+    ax.axvspan(center_mhz - half_band_mhz, center_mhz + half_band_mhz,
+               color=MARK_COLOR, alpha=0.15, linewidth=0)
+
+
+def plot_constellation(normalized_symbols: np.ndarray):
+    """
+    Plot the Gray-coded 16-QAM alphabet at Es = 1 with its bit labels.
 
     Parameters
     ----------
-    symbols : np.ndarray
-        Complex symbols with integer levels {-3, -1, +1, +3}.
     normalized_symbols : np.ndarray
-        The same symbols after normalization to Es = 1.
+        Symbols normalized to Es = 1.
     """
 
-    # 1. Distinct constellation points
-    points = np.unique(symbols)
-    points_normalized = np.unique(normalized_symbols)
-    scale = np.max(np.abs(points_normalized.real)) / np.max(np.abs(points.real))
+    # 1. Distinct points and their Gray labels (integer levels = point * sqrt(10))
+    points = np.unique(normalized_symbols)
+    levels = np.array([-3, -1, 1, 3]) / np.sqrt(10)
 
-    fig, axes = plt.subplots(1, 2, figsize=(11, 5.2))
-    fig.suptitle("Gray-Coded 16-QAM Constellation")
+    fig, ax = plt.subplots(figsize=(4.8, 4.6))
+    fig.suptitle("1  Symbol mapping: Gray-coded 16-QAM (Es = 1)")
 
-    titles = (
-        "Integer levels (average Es = 10)",
-        f"Normalized (Es = 1, levels / sqrt(10), scale {scale:.4f})",
-    )
+    ax.scatter(points.real, points.imag, s=40, color=FPGA_COLOR, zorder=3)
+    for point in points:
+        integer = np.rint(point * np.sqrt(10))
+        bits = qam16_gray_demapping([int(integer.real)], [int(integer.imag)])
+        ax.annotate("".join(str(b) for b in bits), (point.real, point.imag),
+                    textcoords="offset points", xytext=(0, 7), ha="center", fontsize=7)
 
-    # 2. Same layout for both panels; only the scale differs
-    for ax, data, factor, title in zip(axes, (points, points_normalized), (1.0, scale), titles):
-        ax.scatter(data.real, data.imag, s=45, color=I_COLOR, zorder=3)
+    # 2. Decision boundaries halfway between levels
+    for b in np.array([-2, 0, 2]) / np.sqrt(10):
+        ax.axvline(b, color=MARK_COLOR, linewidth=0.6, linestyle="--")
+        ax.axhline(b, color=MARK_COLOR, linewidth=0.6, linestyle="--")
 
-        for point in points:
-            bits = qam16_gray_demapping([int(point.real)], [int(point.imag)])
-            label = "".join(str(bit) for bit in bits)
-            ax.annotate(label, (point.real * factor, point.imag * factor),
-                        textcoords="offset points", xytext=(0, 7),
-                        ha="center", fontsize=8)
-
-        levels = np.array([-3, -1, 1, 3]) * factor
-        ax.set_xticks(levels)
-        ax.set_yticks(levels)
-        ax.set_xticklabels([f"{v:.3g}" for v in levels])
-        ax.set_yticklabels([f"{v:.3g}" for v in levels])
-        ax.axhline(0, color="black", linewidth=0.6)
-        ax.axvline(0, color="black", linewidth=0.6)
-        ax.set_xlim(-4 * factor, 4 * factor)
-        ax.set_ylim(-4 * factor, 4 * factor)
-        ax.set_aspect("equal")
-        ax.set_xlabel("In-phase (I)")
-        ax.set_ylabel("Quadrature (Q)")
-        ax.set_title(title)
+    ax.set_xticks(levels)
+    ax.set_yticks(levels)
+    ax.set_xticklabels([f"{v:.3f}" for v in levels])
+    ax.set_yticklabels([f"{v:.3f}" for v in levels])
+    ax.set_xlim(-1.3, 1.3)
+    ax.set_ylim(-1.3, 1.3)
+    ax.set_aspect("equal")
+    ax.set_xlabel("In-phase I")
+    ax.set_ylabel("Quadrature Q")
 
     return fig
 
 
-def plot_symbol_processing(
+def plot_pulse_shaping(
     normalized_symbols: np.ndarray,
-    upsampled_symbols: np.ndarray,
     pulse_shaped_symbols: np.ndarray,
-    rrc_length: int,
-    sample_rate: float,
-    samples_per_symbol: int,
-    first_symbol: int = 0,
-    num_symbols: int = 8,
-):
-    """
-    Show how a few symbols become a sampled pulse-shaped waveform.
-
-    Rows: symbol values, zero-insertion upsampled samples and the RRC
-    output. The RRC output is shifted left by the filter group delay
-    (rrc_length - 1) / 2 samples, so that every symbol instant lines up
-    in all three rows.
-
-    Parameters
-    ----------
-    normalized_symbols, upsampled_symbols, pulse_shaped_symbols : np.ndarray
-        Pipeline arrays.
-    rrc_length : int
-        Number of RRC coefficients.
-    sample_rate : float
-        Sampling frequency in Hz.
-    samples_per_symbol : int
-        Upsampling factor.
-    first_symbol : int, optional
-        Index of the first symbol shown (default 0).
-    num_symbols : int, optional
-        Number of symbols shown (default 8).
-    """
-
-    # 1. Sample ranges and time axes in microseconds
-    delay = (rrc_length - 1) // 2
-    k = np.arange(first_symbol, first_symbol + num_symbols)
-    n = np.arange(first_symbol * samples_per_symbol, (first_symbol + num_symbols) * samples_per_symbol)
-    t_symbols = k * samples_per_symbol / sample_rate * 1e6
-    t_samples = n / sample_rate * 1e6
-
-    symbols = normalized_symbols[k]
-    upsampled = upsampled_symbols[n]
-    shaped = pulse_shaped_symbols[n + delay]
-    shaped_at_symbols = pulse_shaped_symbols[k * samples_per_symbol + delay]
-
-    fig, axes = plt.subplots(3, 2, figsize=(12, 7.5), sharex=True)
-    fig.suptitle(f"Symbol Processing: symbols {first_symbol} to {first_symbol + num_symbols - 1}, "
-                 f"{samples_per_symbol} samples per symbol")
-
-    # 2. One column for I and one for Q
-    for col, (part, name, color) in enumerate(
-        ((np.real, "I", I_COLOR), (np.imag, "Q", Q_COLOR))
-    ):
-        ax_sym, ax_up, ax_shaped = axes[:, col]
-
-        ax_sym.stem(t_symbols, part(symbols), linefmt=color, markerfmt="o", basefmt="k-")
-        ax_sym.set_title(f"Normalized symbols ({name})")
-        ax_sym.set_ylabel("Amplitude")
-
-        ax_up.plot(t_samples, part(upsampled), ".", color="gray", markersize=2,
-                   label="inserted zeros")
-        ax_up.stem(t_symbols, part(upsampled[::samples_per_symbol]),
-                   linefmt=color, markerfmt="o", basefmt="k-", label="symbol samples")
-        ax_up.set_title(f"Zero-insertion upsampling ({name})")
-        ax_up.set_ylabel("Amplitude")
-        ax_up.legend(loc="best")
-
-        ax_shaped.plot(t_samples, part(shaped), color=color, label="RRC output")
-        ax_shaped.plot(t_symbols, part(shaped_at_symbols), "o", color=MARK_COLOR,
-                       markersize=4, label="symbol instants")
-        ax_shaped.set_title(f"Pulse-shaped ({name}), group delay {delay} samples "
-                            f"= {delay / sample_rate * 1e6:.2f} us removed")
-        ax_shaped.set_ylabel("Amplitude")
-        ax_shaped.set_xlabel("Time (us)")
-        ax_shaped.legend(loc="best")
-
-    return fig
-
-
-def plot_rrc_response(
     rrc_coefficients: np.ndarray,
+    sample_rate: float,
     samples_per_symbol: int,
     symbol_rate: float,
-    sample_rate: float,
     rolloff: float,
-    fft_length: int = 2 ** 16,
+    first_symbol: int,
+    num_symbols: int
 ):
     """
-    Plot the RRC impulse response and its magnitude frequency response.
-
-    The frequency response is the FFT of the zero-padded coefficients,
-    normalized to 0 dB at DC. Vertical lines mark (1 - a) Rs / 2,
-    Rs / 2 and (1 + a) Rs / 2.
+    Plot the RRC filter and the shaped I/Q waveform with the symbol values.
 
     Parameters
     ----------
+    normalized_symbols, pulse_shaped_symbols : np.ndarray
+        Symbols at Es = 1 and RRC output (01 pipeline).
     rrc_coefficients : np.ndarray
-        Actual filter coefficients from the pipeline.
+        RRC taps.
+    sample_rate, symbol_rate : float
+        Fs and Rs in Hz.
     samples_per_symbol : int
-        Samples per symbol.
-    symbol_rate, sample_rate : float
-        Rs and Fs in Hz.
+        Fs / Rs.
     rolloff : float
-        Roll-off factor a.
-    fft_length : int, optional
-        Zero-padded FFT length for a smooth response (default 65536).
+        RRC roll-off.
+    first_symbol, num_symbols : int
+        Symbols shown in the time panels.
     """
 
-    # 1. Impulse response on a time axis in symbol periods
-    center = (len(rrc_coefficients) - 1) // 2
-    t = (np.arange(len(rrc_coefficients)) - center) / samples_per_symbol
-    symbol_taps = np.arange(0, len(rrc_coefficients), samples_per_symbol)
+    # 1. Time window aligned to the symbol instants (group delay removed)
+    delay = (len(rrc_coefficients) - 1) // 2
+    k = np.arange(first_symbol, first_symbol + num_symbols)
+    n = np.arange(k[0] * samples_per_symbol, (k[-1] + 1) * samples_per_symbol)
+    t_us = n / sample_rate * 1e6
+    t_sym_us = k * samples_per_symbol / sample_rate * 1e6
+    shaped = pulse_shaped_symbols[n + delay]
 
-    # 2. Frequency response from the zero-padded coefficients
-    padded = np.zeros(fft_length)
+    fig, axes = plt.subplots(2, 2, figsize=(10, 6))
+    fig.suptitle(f"2  Pulse shaping: RRC a = {rolloff}, {len(rrc_coefficients)} taps, "
+                 f"{samples_per_symbol} samples/symbol")
+
+    # 2. Shaped I and Q with the symbol values at the symbol instants
+    for ax, part, name, color in ((axes[0, 0], np.real, "I", FPGA_COLOR),
+                                  (axes[0, 1], np.imag, "Q", Q_COLOR)):
+        ax.plot(t_us, part(shaped), color=color, label=f"RRC output {name}")
+        ax.plot(t_sym_us, part(normalized_symbols[k]) * rrc_coefficients[delay], "o",
+                color=IDEAL_COLOR, markersize=4, label="symbol x h[0]")
+        ax.set_title(f"Baseband {name} (group delay {delay / sample_rate * 1e6:.1f} us removed)")
+        ax.set_xlabel("Time (us)")
+        ax.set_ylabel("Amplitude")
+        ax.legend(loc="upper right")
+
+    # 3. Impulse response
+    ax_h, ax_f = axes[1]
+    t_symbols = (np.arange(len(rrc_coefficients)) - delay) / samples_per_symbol
+    ax_h.plot(t_symbols, rrc_coefficients, color=FPGA_COLOR)
+    ax_h.plot(t_symbols[::samples_per_symbol], rrc_coefficients[::samples_per_symbol],
+              "o", color=IDEAL_COLOR, markersize=3, label="symbol-spaced taps")
+    ax_h.set_title("Impulse response")
+    ax_h.set_xlabel("Time (symbol periods)")
+    ax_h.set_ylabel("h[n]")
+    ax_h.legend(loc="upper right")
+
+    # 4. Magnitude response, 0 dB at DC, with the band edges
+    padded = np.zeros(1 << 16)
     padded[:len(rrc_coefficients)] = rrc_coefficients
     frequencies, response_db = compute_spectrum(padded, sample_rate)
-    response_db = response_db - response_db[frequencies == 0][0]
-
-    fig, (ax_t, ax_f) = plt.subplots(1, 2, figsize=(12, 4.5))
-    fig.suptitle(f"RRC Filter: roll-off {rolloff}, {len(rrc_coefficients)} taps, "
-                 f"{samples_per_symbol} samples per symbol, unit energy")
-
-    ax_t.plot(t, rrc_coefficients, color=I_COLOR)
-    ax_t.plot(t[symbol_taps], rrc_coefficients[symbol_taps], "o", color=MARK_COLOR,
-              markersize=4, label="symbol-spaced taps")
-    ax_t.set_title("Impulse response")
-    ax_t.set_xlabel("Time (symbol periods)")
-    ax_t.set_ylabel("h[n]")
-    ax_t.legend(loc="upper right")
-
-    # 3. One-sided frequency response with the band edges
+    response_db -= response_db[frequencies == 0][0]
     positive = frequencies >= 0
-    ax_f.plot(frequencies[positive] / 1e6, response_db[positive], color=I_COLOR)
-
-    edges = (
-        ((1 - rolloff) * symbol_rate / 2, ":", "(1 - a) Rs/2"),
-        (symbol_rate / 2, "--", "Rs/2 (-3 dB ideal)"),
-        ((1 + rolloff) * symbol_rate / 2, "-.", "(1 + a) Rs/2"),
-    )
-    for f_edge, style, label in edges:
-        ax_f.axvline(f_edge / 1e6, color=MARK_COLOR, linestyle=style,
+    ax_f.plot(frequencies[positive] / 1e6, response_db[positive], color=FPGA_COLOR)
+    for f_edge, style, label in (((1 - rolloff) * symbol_rate / 2, ":", "(1-a)Rs/2"),
+                                 (symbol_rate / 2, "--", "Rs/2"),
+                                 ((1 + rolloff) * symbol_rate / 2, "-.", "(1+a)Rs/2")):
+        ax_f.axvline(f_edge / 1e6, color=IDEAL_COLOR, linestyle=style, linewidth=0.8,
                      label=f"{label} = {f_edge / 1e6:.3f} MHz")
-
     ax_f.set_xlim(0, 3 * symbol_rate / 1e6)
-    ax_f.set_ylim(-90, 5)
-    ax_f.set_title("Magnitude response (0 dB at DC)")
+    ax_f.set_ylim(-100, 5)
+    ax_f.set_title("Magnitude response")
     ax_f.set_xlabel("Frequency (MHz)")
     ax_f.set_ylabel("|H(f)| (dB)")
     ax_f.legend(loc="upper right")
@@ -255,274 +223,332 @@ def plot_rrc_response(
     return fig
 
 
-def plot_if_waveform(
-    pulse_shaped_symbols: np.ndarray,
-    if_samples: np.ndarray,
+def plot_fpga_output(
+    ideal_if: np.ndarray,
+    fpga_if: np.ndarray,
     sample_rate: float,
-    if_frequency: float,
+    full_scale: float,
+    rbw: float,
     start_sample: int,
-    duration: float = 2e-6,
-    tx_output: np.ndarray | None = None,
+    duration: float
 ):
     """
-    Plot baseband I, baseband Q and the real IF waveform in one time window.
-
-    If tx_output is given, the IF panel also shows the transmitter output
-    (after the hardware pipeline) behind the clean FPGA signal.
-
-    The IF panel also shows the envelope +/-|I + jQ|. Time is the absolute
-    sample time n / Fs, the same index used by the IF modulator.
+    Compare the bit-true FPGA IF output with the ideal floating-point IF.
 
     Parameters
     ----------
-    pulse_shaped_symbols : np.ndarray
-        Complex baseband after the RRC filter.
-    if_samples : np.ndarray
-        Real IF samples.
-    sample_rate, if_frequency : float
-        Fs and fc in Hz.
+    ideal_if, fpga_if : np.ndarray
+        Ideal and bit-true IF samples, same units and indexing.
+    sample_rate : float
+        Fs in Hz.
+    full_scale : float
+        DAC full scale (0 dBFS), signal units.
+    rbw : float
+        Spectrum analyzer RBW in Hz.
     start_sample : int
-        First sample of the window.
-    duration : float, optional
-        Window length in seconds (default 2 us = 10 carrier periods at 5 MHz).
-    tx_output : np.ndarray, optional
-        Transmitter output samples, same indexing as if_samples.
+        First sample of the time window.
+    duration : float
+        Time window length in s.
     """
 
-    # 1. Time window
-    num_samples = int(round(duration * sample_rate))
-    n = np.arange(start_sample, start_sample + num_samples)
-    t = n / sample_rate * 1e6
-    baseband = pulse_shaped_symbols[n]
+    # 1. Time window and error
+    n = np.arange(start_sample, start_sample + int(round(duration * sample_rate)))
+    t_us = n / sample_rate * 1e6
+    error = fpga_if - ideal_if
+    snr_db = 10 * np.log10(np.mean(ideal_if ** 2) / np.mean(error ** 2))
 
-    fig, (ax_i, ax_q, ax_if) = plt.subplots(3, 1, figsize=(11, 7.5), sharex=True)
-    fig.suptitle(f"Quadrature IF Modulation: fc = {if_frequency / 1e6:.3f} MHz, "
-                 f"Fs = {sample_rate / 1e6:.1f} MSPS "
-                 f"({sample_rate / if_frequency:.1f} samples per carrier period)")
+    fig, (ax_t, ax_e, ax_f) = plt.subplots(3, 1, figsize=(10, 7.5),
+                                           gridspec_kw={"height_ratios": [2, 1, 2]})
+    fig.suptitle(f"3  FPGA output: bit-true vs ideal (SNR {snr_db:.1f} dB)")
 
-    # 2. Baseband components
-    ax_i.plot(t, baseband.real, color=I_COLOR)
-    ax_i.set_title("Baseband I[n]")
-    ax_i.set_ylabel("Amplitude")
+    # 2. Waveform: ideal line, FPGA samples
+    ax_t.plot(t_us, ideal_if[n] / full_scale, color=IDEAL_COLOR, label="ideal (float)")
+    ax_t.plot(t_us, fpga_if[n] / full_scale, ".", color=FPGA_COLOR, markersize=3,
+              label="bit-true FPGA")
+    ax_t.set_xlabel("Time (us)")
+    ax_t.set_ylabel("Amplitude (FS)")
+    ax_t.set_title("IF waveform")
+    ax_t.legend(loc="upper right", ncol=2)
 
-    ax_q.plot(t, baseband.imag, color=Q_COLOR)
-    ax_q.set_title("Baseband Q[n]")
-    ax_q.set_ylabel("Amplitude")
+    # 3. Fixed-point error in LSB-scale units of full scale
+    ax_e.plot(t_us, error[n] / full_scale * 1e3, color=FPGA_COLOR)
+    ax_e.set_ylabel("Error (mFS)")
+    ax_e.set_xlabel("Time (us)")
+    ax_e.set_title("FPGA - ideal")
 
-    # 3. IF waveform with its envelope
-    envelope = np.abs(baseband)
-    if tx_output is not None:
-        ax_if.plot(t, tx_output[n], color=NOISY_COLOR, alpha=0.6,
-                   label="Transmitter output (with noise)")
-    ax_if.plot(t, if_samples[n], ".-", color=IF_COLOR, markersize=3,
-               label="x[n] = I cos(2 pi fc n/Fs) - Q sin(2 pi fc n/Fs)")
-    ax_if.plot(t, envelope, "--", color="gray", label="+/-|I + jQ|")
-    ax_if.plot(t, -envelope, "--", color="gray")
-    ax_if.set_title("Real IF signal")
-    ax_if.set_ylabel("Amplitude")
-    ax_if.set_xlabel("Time (us)")
-    ax_if.margins(y=0.4)    # room for the legend above the waveform
-    ax_if.legend(loc="upper right", ncol=2)
+    # 4. Spectrum
+    f, psd_ideal = _psd(ideal_if, sample_rate, rbw, full_scale)
+    _, psd_fpga = _psd(fpga_if, sample_rate, rbw, full_scale)
+    ax_f.plot(f, psd_fpga, color=FPGA_COLOR, label="bit-true FPGA")
+    ax_f.plot(f, psd_ideal, color=IDEAL_COLOR, linewidth=0.8, label="ideal (float)")
+    ax_f.set_xlim(0, sample_rate / 2e6)
+    _psd_axes(ax_f, f"Spectrum, RBW {rbw / 1e3:g} kHz", floor_db=-200)
 
     return fig
 
 
-def plot_spectra(
-    baseband_frequencies: np.ndarray,
-    baseband_spectrum_db: np.ndarray,
-    if_frequencies: np.ndarray,
-    if_spectrum_db: np.ndarray,
-    if_frequency: float,
+def plot_dac_transfer(
+    ideal_if: np.ndarray,
+    quantized: np.ndarray,
+    static: np.ndarray,
+    sample_rate: float,
+    full_scale: float,
+    rbw: float,
+    intermediate_frequency: float,
+    half_band: float
+):
+    """
+    Show the static DAC transfer curve: quantization, HD2/HD3, offset/gain.
+
+    Parameters
+    ----------
+    ideal_if : np.ndarray
+        Ideal IF samples.
+    quantized, static : np.ndarray
+        DAC output after quantization and after nonlinearity + offset/gain.
+    sample_rate : float
+        Fs in Hz.
+    full_scale : float
+        DAC full scale, signal units.
+    rbw : float
+        Spectrum analyzer RBW in Hz.
+    intermediate_frequency, half_band : float
+        fc and (1 + a) Rs / 2 in Hz.
+    """
+
+    fig, (ax_c, ax_f) = plt.subplots(1, 2, figsize=(11, 4.4),
+                                     gridspec_kw={"width_ratios": [1, 2]})
+    fig.suptitle("4  DAC transfer curve: quantization, nonlinearity, offset/gain")
+
+    # 1. Transfer error vs input level (every 7th sample, enough to see the curve)
+    x = ideal_if[::7] / full_scale
+    ax_c.plot(x, (quantized[::7] / full_scale - x) * 1e3, ",", color=DAC_COLOR,
+              alpha=0.5, label="quantized")
+    ax_c.plot(x, (static[::7] / full_scale - x) * 1e3, ",", color=OUTPUT_COLOR,
+              label="+ HD + offset/gain")
+    ax_c.set_xlabel("Input (FS)")
+    ax_c.set_ylabel("Output - input (mFS)")
+    ax_c.set_title("Transfer error")
+    ax_c.legend(loc="upper left", markerscale=20)
+
+    # 2. Spectrum with harmonic positions
+    fc = intermediate_frequency / 1e6
+    f, psd_ideal = _psd(ideal_if, sample_rate, rbw, full_scale)
+    _, psd_q = _psd(quantized, sample_rate, rbw, full_scale)
+    _, psd_s = _psd(static, sample_rate, rbw, full_scale)
+    ax_f.plot(f, psd_s, color=OUTPUT_COLOR, label="+ HD + offset/gain")
+    ax_f.plot(f, psd_q, color=DAC_COLOR, label="quantized")
+    ax_f.plot(f, psd_ideal, color=IDEAL_COLOR, linewidth=0.8, label="ideal")
+    for k in (2, 3):
+        _mark_band(ax_f, k * fc, k * half_band / 1e6)
+        ax_f.annotate(f"HD{k}", (k * fc, -60), ha="center", fontsize=8)
+    ax_f.set_xlim(0, sample_rate / 2e6)
+    _psd_axes(ax_f, f"Spectrum, RBW {rbw / 1e3:g} kHz", floor_db=-200)
+
+    return fig
+
+
+def plot_dac_clock(
+    static: np.ndarray,
+    clocked: np.ndarray,
+    sample_rate: float,
+    full_scale: float,
+    rbw: float,
+    intermediate_frequency: float,
+    half_band: float
+):
+    """
+    Show the clock impairments (jitter, phase noise) around the carrier.
+
+    Parameters
+    ----------
+    static, clocked : np.ndarray
+        DAC output before and after the clock effects.
+    sample_rate : float
+        Fs in Hz.
+    full_scale : float
+        DAC full scale, signal units.
+    rbw : float
+        Spectrum analyzer RBW in Hz.
+    intermediate_frequency, half_band : float
+        fc and (1 + a) Rs / 2 in Hz.
+    """
+
+    fc = intermediate_frequency / 1e6
+    f, psd_before = _psd(static, sample_rate, rbw, full_scale)
+    _, psd_after = _psd(clocked, sample_rate, rbw, full_scale)
+    _, psd_error = _psd(clocked - static, sample_rate, rbw, full_scale)
+
+    fig, (ax_f, ax_e) = plt.subplots(1, 2, figsize=(11, 4.2))
+    fig.suptitle("5  DAC clock: jitter and phase noise")
+
+    # 1. Close-in spectrum
+    ax_f.plot(f, psd_after, color=CLOCK_COLOR, label="with clock effects")
+    ax_f.plot(f, psd_before, color=IDEAL_COLOR, linewidth=0.8, label="ideal clock")
+    _mark_band(ax_f, fc, half_band / 1e6)
+    ax_f.set_xlim(fc - 4 * half_band / 1e6, fc + 4 * half_band / 1e6)
+    _psd_axes(ax_f, "Around fc", floor_db=-200)
+
+    # 2. Clock-induced error alone over the whole band
+    ax_e.plot(f, psd_error, color=CLOCK_COLOR)
+    ax_e.set_xlim(0, sample_rate / 2e6)
+    ax_e.set_title("Error added by the clock")
+    ax_e.set_xlabel("Frequency (MHz)")
+    ax_e.set_ylabel("PSD (dBFS/Hz)")
+
+    return fig
+
+
+def plot_dac_output_dynamics(
+    ideal_if: np.ndarray,
+    held: np.ndarray,
+    glitched: np.ndarray,
+    output: np.ndarray,
+    sample_rate: float,
+    oversampling: int,
+    full_scale: float,
+    rbw: float,
+    intermediate_frequency: float,
+    start_sample: int,
+    num_dac_samples: int
+):
+    """
+    Show the DAC output on the analog grid: ZOH, glitches, settling, noise.
+
+    Parameters
+    ----------
+    ideal_if : np.ndarray
+        Ideal IF samples at Fs.
+    held, glitched, output : np.ndarray
+        ZOH staircase, with glitches, final DAC output, at Fs_a = M * Fs.
+    sample_rate : float
+        Fs in Hz.
+    oversampling : int
+        Analog grid factor M.
+    full_scale : float
+        DAC full scale, signal units.
+    rbw : float
+        Spectrum analyzer RBW in Hz.
+    intermediate_frequency : float
+        fc in Hz.
+    start_sample, num_dac_samples : int
+        DAC samples shown in the time panel.
+    """
+
+    analog_rate = oversampling * sample_rate
+    n = np.arange(start_sample, start_sample + num_dac_samples)
+    m = np.arange(start_sample * oversampling, (start_sample + num_dac_samples) * oversampling)
+
+    fig, (ax_t, ax_f) = plt.subplots(2, 1, figsize=(10, 7.5))
+    fig.suptitle(f"6  DAC output: zero-order hold, glitches, settling, noise "
+                 f"(analog grid {analog_rate / 1e6:.0f} MSa/s)")
+
+    # 1. Time domain in ns
+    ax_t.step(m / analog_rate * 1e9, held[m] / full_scale, where="post",
+              color=DAC_COLOR, label="ZOH staircase")
+    ax_t.plot(m / analog_rate * 1e9, glitched[m] / full_scale, color=CLOCK_COLOR,
+              linewidth=0.8, label="+ glitches")
+    ax_t.plot(m / analog_rate * 1e9, output[m] / full_scale, color=OUTPUT_COLOR,
+              linewidth=1.4, label="DAC output (settling + noise)")
+    ax_t.plot(n / sample_rate * 1e9, ideal_if[n] / full_scale, "o", color=IDEAL_COLOR,
+              markersize=3.5, label="ideal samples")
+    ax_t.set_xlabel("Time (ns)")
+    ax_t.set_ylabel("Amplitude (FS)")
+    ax_t.set_title("Waveform")
+    ax_t.legend(loc="upper right", ncol=2)
+
+    # 2. Spectrum up to Fs_a/2 with sinc envelope and images
+    f, psd_out = _psd(output, analog_rate, rbw, full_scale)
+    f_dac, psd_ideal = _psd(ideal_if, sample_rate, rbw, full_scale)
+    ax_f.plot(f, psd_out, color=OUTPUT_COLOR, label="DAC output")
+    ax_f.plot(f_dac, psd_ideal, color=IDEAL_COLOR, linewidth=0.8, label="ideal (0 ... Fs/2)")
+    peak = np.max(psd_ideal)
+    sinc_db = 20 * np.log10(np.maximum(np.abs(np.sinc(f * 1e6 / sample_rate)), 1e-6))
+    ax_f.plot(f, peak + sinc_db, "--", color=MARK_COLOR, label="sinc(f/Fs) envelope")
+    fs_mhz, fc = sample_rate / 1e6, intermediate_frequency / 1e6
+    for k in range(1, oversampling // 2 + 1):
+        ax_f.axvline(k * fs_mhz, color=MARK_COLOR, linewidth=0.5, linestyle=":")
+    ax_f.set_xlim(0, analog_rate / 2e6)
+    _psd_axes(ax_f, f"Spectrum, images at k Fs +/- fc = k {fs_mhz:g} +/- {fc:g} MHz",
+              floor_db=-180, top_db=peak + 10)
+
+    return fig
+
+
+def plot_measurement(
+    frequencies: np.ndarray,
+    psd_dbfs_hz: np.ndarray,
+    received_symbols: np.ndarray,
+    reference_symbols: np.ndarray,
+    evm_percent: float,
+    intermediate_frequency: float,
     symbol_rate: float,
     rolloff: float,
-    dynamic_range_db: float = 100.0,
-    tx_spectrum_db: np.ndarray | None = None,
+    hardware_label: str
 ):
     """
-    Plot the complex baseband spectrum and the real IF spectrum.
-
-    If tx_spectrum_db is given, both IF panels also show the transmitter
-    output spectrum behind the clean FPGA spectrum (noise floor, spurs).
-
-    All panels show |X[k]| / N in dB re 1 from one FFT over the whole
-    signal (rectangular window). This is an amplitude spectrum, not a
-    calibrated PSD. The real IF signal has half the baseband amplitude
-    in each of its two bands (-6 dB).
+    Show what the lab instruments report at the transmitter output.
 
     Parameters
     ----------
-    baseband_frequencies, baseband_spectrum_db : np.ndarray
-        compute_spectrum() output for the complex baseband.
-    if_frequencies, if_spectrum_db : np.ndarray
-        compute_spectrum() output for the real IF signal.
-    if_frequency, symbol_rate : float
+    frequencies, psd_dbfs_hz : np.ndarray
+        Spectrum analyzer result (05 pipeline).
+    received_symbols, reference_symbols : np.ndarray
+        VSA symbols and ideal symbols at Es = 1.
+    evm_percent : float
+        RMS EVM in percent.
+    intermediate_frequency, symbol_rate : float
         fc and Rs in Hz.
     rolloff : float
-        Roll-off factor a; bands are marked at +/-(1 + a) Rs / 2.
-    dynamic_range_db : float, optional
-        Displayed range below the highest value (default 100 dB).
-    tx_spectrum_db : np.ndarray, optional
-        compute_spectrum() output for the transmitter output (same bins as IF).
+        RRC roll-off.
+    hardware_label : str
+        Short description of the hardware parameters.
     """
 
-    # 1. Frequencies in MHz and common display range
-    f_bb = baseband_frequencies / 1e6
-    f_if = if_frequencies / 1e6
-    fc = if_frequency / 1e6
-    half_band = (1 + rolloff) * symbol_rate / 2 / 1e6
-    top = max(np.max(baseband_spectrum_db), np.max(if_spectrum_db)) + 5
+    fc = intermediate_frequency / 1e6
+    half_band = (1 + rolloff) * symbol_rate / 2e6
+    error = np.abs(received_symbols - reference_symbols) * 100
 
-    fig, (ax_bb, ax_if, ax_zoom) = plt.subplots(3, 1, figsize=(11, 9.5))
-    fig.suptitle(f"Amplitude Spectra: |X[k]|/N of one {len(f_if)}-point FFT, "
-                 "rectangular window (not a PSD)")
+    fig = plt.figure(figsize=(12, 4.6))
+    grid = fig.add_gridspec(1, 3, width_ratios=[1.4, 1, 1.2])
+    ax_f, ax_c, ax_e = (fig.add_subplot(grid[0, i]) for i in range(3))
+    fig.suptitle(f"7  Transmitter output, virtual instruments: EVM {evm_percent:.2f} %\n"
+                 + textwrap.fill(hardware_label, 150), fontsize=9)
 
-    # 2. Complex baseband
-    ax_bb.plot(f_bb, baseband_spectrum_db, color=I_COLOR)
-    for edge in (-half_band, half_band):
-        ax_bb.axvline(edge, color=MARK_COLOR, linestyle="--")
-    ax_bb.set_xlim(-3 * half_band, 3 * half_band)
-    ax_bb.set_title(f"Complex baseband (dashed: +/-(1 + a) Rs/2 = +/-{half_band:.3f} MHz)")
+    # 1. Spectrum analyzer: channel and adjacent channels
+    ax_f.plot(frequencies / 1e6, psd_dbfs_hz, color=TX_COLOR)
+    for offset in (-2 * half_band, 0, 2 * half_band):
+        _mark_band(ax_f, fc + offset, half_band)
+    ax_f.set_xlim(fc - 5 * half_band, fc + 5 * half_band)
+    ax_f.set_title("Spectrum analyzer (channel and adjacent)")
+    ax_f.set_xlabel("Frequency (MHz)")
+    ax_f.set_ylabel("PSD (dBFS/Hz)")
 
-    # 3. Full two-sided IF spectrum (transmitter output behind the clean signal)
-    if tx_spectrum_db is not None:
-        for ax in (ax_if, ax_zoom):
-            ax.plot(f_if, tx_spectrum_db, color=NOISY_COLOR, alpha=0.6,
-                    label="Transmitter output (with noise)")
-    ax_if.plot(f_if, if_spectrum_db, color=IF_COLOR, label="FPGA output (clean)")
-    ax_if.set_xlim(f_if[0], -f_if[0])
-    ax_if.set_title("Real IF signal, full range -Fs/2 to +Fs/2")
-    ax_if.legend(loc="upper right")
+    # 2. VSA constellation
+    ideal = np.unique(reference_symbols)
+    ax_c.scatter(received_symbols.real, received_symbols.imag, s=1, alpha=0.3,
+                 color=TX_COLOR, rasterized=True, label="measured")
+    ax_c.scatter(ideal.real, ideal.imag, s=25, marker="+", color=IDEAL_COLOR,
+                 zorder=3, label="ideal")
+    for b in np.array([-2, 0, 2]) / np.sqrt(10):
+        ax_c.axvline(b, color=MARK_COLOR, linewidth=0.5, linestyle="--")
+        ax_c.axhline(b, color=MARK_COLOR, linewidth=0.5, linestyle="--")
+    ax_c.set_aspect("equal")
+    ax_c.set_xlim(-1.3, 1.3)
+    ax_c.set_ylim(-1.3, 1.3)
+    ax_c.set_xlabel("In-phase I")
+    ax_c.set_ylabel("Quadrature Q")
+    ax_c.set_title("VSA constellation")
+    ax_c.legend(loc="upper right", markerscale=3)
 
-    # 4. Positive IF band around fc
-    ax_zoom.plot(f_if, if_spectrum_db, color=IF_COLOR)
-    ax_zoom.axvline(fc, color="black", linestyle=":", label=f"fc = {fc:.3f} MHz")
-    for edge in (fc - half_band, fc + half_band):
-        ax_zoom.axvline(edge, color=MARK_COLOR, linestyle="--")
-    ax_zoom.set_xlim(fc - 3 * half_band, fc + 3 * half_band)
-    ax_zoom.set_title("Real IF signal, positive band around fc "
-                      "(dashed: fc +/- (1 + a) Rs/2)")
-    ax_zoom.legend(loc="upper right")
-
-    for ax in (ax_bb, ax_if, ax_zoom):
-        ax.set_ylim(top - dynamic_range_db, top)
-        ax.set_xlabel("Frequency (MHz)")
-        ax.set_ylabel("Magnitude (dB re 1)")
-
-    return fig
-
-
-def plot_noisy_constellation(
-    normalized_symbols: np.ndarray,
-    snr_list: list,
-    seed: int | None = None
-):
-    """
-    Plot the normalized 16-QAM constellation with AWGN at several SNR values.
-
-    Theory illustration: noise is added directly to the symbols to show
-    how much noise 16-QAM tolerates. In real hardware the noise appears
-    after the DAC (see the hardware pipeline).
-
-    Each panel shows the noisy symbols, the ideal constellation points and
-    the decision boundaries at -2/sqrt(10), 0 and +2/sqrt(10), which lie
-    halfway between neighbouring levels -3, -1, +1, +3 (divided by sqrt(10)).
-
-    Parameters
-    ----------
-    normalized_symbols : np.ndarray
-        Complex symbols normalized to Es = 1.
-    snr_list : list
-        SNR values in dB, one panel per value (up to 4).
-    seed : int, optional
-        Seed for the noise generator, makes the figure repeatable.
-    """
-
-    # 1. One panel per SNR value
-    fig, axes = plt.subplots(2, 2, figsize=(10, 10))
-    fig.suptitle("16-QAM Constellation with AWGN")
-
-    # 2. Ideal points and decision boundaries
-    ideal = np.unique(normalized_symbols)
-    boundaries = np.array([-2, 0, 2]) / np.sqrt(10)
-
-    for ax, snr_db in zip(axes.flat, snr_list):
-
-        # 3. Add noise at this SNR
-        noisy = add_awgn(normalized_symbols, snr_db, seed=seed)
-
-        # 4. Noisy cloud and ideal points
-        ax.scatter(noisy.real, noisy.imag, s=2, alpha=0.3,
-                   color=I_COLOR, label="Noisy symbols")
-        ax.scatter(ideal.real, ideal.imag, s=30,
-                   color="black", zorder=3, label="Ideal points")
-
-        # 5. Decision boundaries
-        for b in boundaries:
-            ax.axvline(b, color=MARK_COLOR, linewidth=0.8)
-            ax.axhline(b, color=MARK_COLOR, linewidth=0.8)
-
-        ax.set_title(f"SNR = {snr_db} dB")
-        ax.set_aspect("equal")
-        ax.set_xlim(-1.5, 1.5)
-        ax.set_ylim(-1.5, 1.5)
-        ax.set_xlabel("In-phase (I)")
-        ax.set_ylabel("Quadrature (Q)")
-
-    axes.flat[0].legend(loc="upper right", markerscale=3)
-
-    return fig
-
-
-def plot_received_constellation(
-    received_symbols: np.ndarray,
-    normalized_symbols: np.ndarray,
-    evm_percent: float,
-    hardware_label: str | None = None,
-):
-    """
-    Plot the constellation measured at the transmitter output.
-
-    The symbols come from the virtual analyzer (demodulate_if) applied to
-    the output of the hardware pipeline, so they contain every modelled
-    impairment. Red lines are the decision boundaries.
-
-    Parameters
-    ----------
-    received_symbols : np.ndarray
-        Complex symbols recovered by demodulate_if().
-    normalized_symbols : np.ndarray
-        Ideal transmitted symbols at Es = 1 (reference points).
-    evm_percent : float
-        RMS EVM of the received symbols, shown in the title.
-    hardware_label : str, optional
-        Short description of the hardware parameters, shown in the title.
-    """
-
-    # 1. Ideal points and decision boundaries
-    ideal = np.unique(normalized_symbols)
-    boundaries = np.array([-2, 0, 2]) / np.sqrt(10)
-
-    fig, ax = plt.subplots(figsize=(6.5, 6.5))
-    title = f"Transmitter Output Constellation: EVM = {evm_percent:.2f} %"
-    if hardware_label:
-        title += f"\n{hardware_label}"
-    fig.suptitle(title)
-
-    # 2. Received cloud, ideal points, boundaries
-    ax.scatter(received_symbols.real, received_symbols.imag, s=3, alpha=0.4,
-               color=I_COLOR, label="Received symbols")
-    ax.scatter(ideal.real, ideal.imag, s=30, color="black", zorder=3,
-               label="Ideal points")
-    for b in boundaries:
-        ax.axvline(b, color=MARK_COLOR, linewidth=0.8, zorder=4)
-        ax.axhline(b, color=MARK_COLOR, linewidth=0.8, zorder=4)
-
-    ax.set_aspect("equal")
-    ax.set_xlim(-1.5, 1.5)
-    ax.set_ylim(-1.5, 1.5)
-    ax.set_xlabel("In-phase (I)")
-    ax.set_ylabel("Quadrature (Q)")
-    ax.legend(loc="upper right", markerscale=3)
+    # 3. Error vector magnitude per symbol
+    ax_e.plot(error, ",", color=TX_COLOR, rasterized=True)
+    ax_e.axhline(evm_percent, color=IDEAL_COLOR, linestyle="--",
+                 label=f"RMS EVM {evm_percent:.2f} %")
+    ax_e.set_xlabel("Symbol index")
+    ax_e.set_ylabel("|error| (% of Es = 1)")
+    ax_e.set_title("Error vector per symbol")
+    ax_e.legend(loc="upper right")
 
     return fig
 
@@ -532,7 +558,7 @@ def plot_evm_sweep(
     evm_measured: np.ndarray,
     evm_theory: np.ndarray,
     x_label: str,
-    evm_limit: float | None = None,
+    evm_limit: float
 ):
     """
     Plot measured EVM against one swept hardware parameter, with theory.
@@ -540,28 +566,64 @@ def plot_evm_sweep(
     Parameters
     ----------
     x_values : np.ndarray
-        Values of the swept parameter (for example DAC NSD in dBFS/Hz).
-    evm_measured : np.ndarray
-        EVM from the virtual analyzer, in percent.
-    evm_theory : np.ndarray
-        Expected EVM in percent, same length as x_values.
+        Swept parameter values.
+    evm_measured, evm_theory : np.ndarray
+        Model (VSA) and theoretical EVM in percent.
     x_label : str
-        Name and unit of the swept parameter (x axis label).
-    evm_limit : float, optional
-        Requirement line in percent (for example 12.5 % for LTE 16-QAM).
+        Name and unit of the swept parameter.
+    evm_limit : float
+        Requirement line in percent.
     """
 
-    fig, ax = plt.subplots(figsize=(9, 5.5))
-    fig.suptitle(f"EVM vs {x_label.split(' (')[0]} at the transmitter output")
+    fig, ax = plt.subplots(figsize=(6.5, 4.2))
+    fig.suptitle(f"8  EVM vs {x_label.split(' (')[0]}")
 
-    ax.semilogy(x_values, evm_theory, "-", color="gray", label="Theory")
-    ax.semilogy(x_values, evm_measured, "o", color=I_COLOR, label="Model (analyzer)")
-    if evm_limit is not None:
-        ax.axhline(evm_limit, color=MARK_COLOR, linestyle="--",
-                   label=f"Limit {evm_limit} %")
-
+    ax.semilogy(x_values, evm_theory, "-", color=IDEAL_COLOR, label="theory")
+    ax.semilogy(x_values, evm_measured, "o", color=TX_COLOR, markersize=4,
+                label="model (VSA)")
+    ax.axhline(evm_limit, color=OUTPUT_COLOR, linestyle="--",
+               label=f"requirement {evm_limit} %")
     ax.set_xlabel(x_label)
     ax.set_ylabel("EVM (%)")
     ax.legend(loc="upper left")
+
+    return fig
+
+
+def plot_noisy_constellation(
+    normalized_symbols: np.ndarray,
+    snr_list: list,
+    seed: int | None
+):
+    """
+    Theory: 16-QAM symbols with AWGN at several SNR values (up to 4 panels).
+
+    Parameters
+    ----------
+    normalized_symbols : np.ndarray
+        Symbols at Es = 1.
+    snr_list : list
+        SNR values in dB.
+    seed : int or None
+        Noise seed.
+    """
+
+    ideal = np.unique(normalized_symbols)
+    fig, axes = plt.subplots(1, len(snr_list), figsize=(3 * len(snr_list), 3.3))
+    fig.suptitle("Theory: 16-QAM with AWGN")
+
+    for ax, snr_db in zip(np.atleast_1d(axes), snr_list):
+        noisy = add_awgn(normalized_symbols, snr_db, seed=seed)
+        ax.scatter(noisy.real, noisy.imag, s=1, alpha=0.3, color=FPGA_COLOR, rasterized=True)
+        ax.scatter(ideal.real, ideal.imag, s=20, marker="+", color=IDEAL_COLOR, zorder=3)
+        for b in np.array([-2, 0, 2]) / np.sqrt(10):
+            ax.axvline(b, color=MARK_COLOR, linewidth=0.5, linestyle="--")
+            ax.axhline(b, color=MARK_COLOR, linewidth=0.5, linestyle="--")
+        ax.set_title(f"SNR = {snr_db} dB")
+        ax.set_aspect("equal")
+        ax.set_xlim(-1.5, 1.5)
+        ax.set_ylim(-1.5, 1.5)
+        ax.set_xlabel("I")
+    np.atleast_1d(axes)[0].set_ylabel("Q")
 
     return fig

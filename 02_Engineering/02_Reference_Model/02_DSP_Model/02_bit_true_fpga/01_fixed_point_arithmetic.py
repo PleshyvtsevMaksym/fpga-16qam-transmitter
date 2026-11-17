@@ -1,4 +1,4 @@
-"""Stage 08: Fixed-point arithmetic of the FPGA (bit-true integer operations)."""
+"""02-01 Fixed-point arithmetic: bit-true integer operations of the FPGA."""
 
 import numbers
 
@@ -72,7 +72,7 @@ def quantize_coefficients(
     Parameters
     ----------
     coefficients : np.ndarray
-        Real filter coefficients (for example the RRC from stage 05).
+        Real filter coefficients (for example the RRC from 01-05).
     num_bits : int
         Coefficient word width N in bits.
 
@@ -106,7 +106,7 @@ def quantize_coefficients(
     return np.round(coefficients * scale).astype(np.int64), float(scale)
 
 
-def shift_right(values: np.ndarray, shift: int, rounding: str = "round") -> np.ndarray:
+def shift_right(values: np.ndarray, shift: int, rounding: str) -> np.ndarray:
     """
     Divide integers by 2^shift as the FPGA does: drop the shift LSBs.
 
